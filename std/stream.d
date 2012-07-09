@@ -389,7 +389,7 @@ interface OutputStream {
 
 // not really abstract, but its instances will do nothing useful
 class Stream : InputStream, OutputStream {
-  private import std.string, std.hash.crc32, std.c.stdlib, std.c.stdio;
+  private import std.string, crc32, std.c.stdlib, std.c.stdio;
 
   // stream abilities
   bool readable = false;        /// Indicates whether this stream can be read from.
@@ -1300,7 +1300,7 @@ class Stream : InputStream, OutputStream {
    * If the stream is not seekable the contents from the current position to eof
    * is read and returned.
    */
-  override string toString() {
+  override string toString() const { with (cast(Stream)this) {
     if (!readable)
       return super.toString();
     try
@@ -1335,27 +1335,27 @@ class Stream : InputStream, OutputStream {
     {
         return super.toString();
     }
-  }
+  } }
 
   /***
    * Get a hash of the stream by reading each byte and using it in a CRC-32
    * checksum.
    */
-  override size_t toHash() @trusted {
+  override size_t toHash() @trusted const { with (cast(Stream)this) {
     if (!readable || !seekable)
       return super.toHash();
     try
     {
         ulong pos = position;
         scope(exit) position(pos);
-        uint crc = crc32Init;
+        uint crc = init_crc32();
         position(0);
         ulong len = size;
         for (ulong i = 0; i < len; i++)
         {
           ubyte c;
           read(c);
-          crc = updateCRC32(crc, c);
+          crc = update_crc32(c, crc);
         }
         return crc;
     }
@@ -1363,7 +1363,7 @@ class Stream : InputStream, OutputStream {
     {
         return super.toHash();
     }
-  }
+  } }
 
   // helper for checking that the stream is readable
   final protected void assertReadable() {
@@ -2605,10 +2605,10 @@ class TArrayStream(Buffer): Stream {
     return cast(ubyte[])res;
   }
 
-  override string toString() {
+  override string toString() const { with (cast(TArrayStream!Buffer)this) {
       // assume data is UTF8
       return to!(string)(cast(char[])data);
-  }
+  } }
 }
 
 /* Test the TArrayStream */

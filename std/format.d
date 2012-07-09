@@ -68,10 +68,11 @@ class FormatException : Exception
     }
 }
 
-/**
-$(RED Scheduled for deprecation. Please use $(D FormatException) instead.)
- */
-/*deprecated*/ alias FormatException FormatError;
+/++
+    $(RED Deprecated. It will be removed In January 2013.
+          Please use $(D FormatException) instead.)
+ +/
+deprecated alias FormatException FormatError;
 
 /**********************************************************************
    Interprets variadic argument list $(D args), formats them according
@@ -1668,10 +1669,22 @@ unittest
 /**
    Static-size arrays are formatted as dynamic arrays.
  */
-void formatValue(Writer, T, Char)(Writer w, ref T obj, ref FormatSpec!Char f)
+void formatValue(Writer, T, Char)(Writer w, auto ref T obj, ref FormatSpec!Char f)
 if (!hasToString!(T, Char) && isStaticArray!T)
 {
     formatValue(w, obj[], f);
+}
+
+unittest    // Test for issue 8310
+{
+    FormatSpec!char f;
+    auto w = appender!string();
+
+    char[2] two = ['a', 'b'];
+    formatValue(w, two, f);
+
+    char[2] getTwo(){ return two; }
+    formatValue(w, getTwo(), f);
 }
 
 /**
@@ -4013,7 +4026,7 @@ body
             debug (unformatRange) printf("\t) spec = %c, front = %c ", fmt.spec, input.front);
             static if (isStaticArray!T)
             {
-                result[i++] = unformatElement!(typeof(T.init[0]))(input, fmt);
+                result[i++] = unformatElement!(ArrayTarget!T)(input, fmt);
             }
             else static if (isDynamicArray!T)
             {
@@ -4458,13 +4471,14 @@ void doFormat(void delegate(dchar) putc, TypeInfo[] arguments, va_list argptr)
         {
             if (valti.classinfo.name.length == 18 &&
                     valti.classinfo.name[9..18] == "Invariant")
-                valti =        (cast(TypeInfo_Invariant)valti).next;
+                valti = (cast(TypeInfo_Invariant)valti).next;
             else if (valti.classinfo.name.length == 14 &&
                     valti.classinfo.name[9..14] == "Const")
-                valti =        (cast(TypeInfo_Const)valti).next;
+                valti = (cast(TypeInfo_Const)valti).next;
             else
                 break;
         }
+
         return valti;
     }
 
@@ -4667,29 +4681,30 @@ void doFormat(void delegate(dchar) putc, TypeInfo[] arguments, va_list argptr)
                 if (comma) putc(',');
                 comma = true;
                 void *pkey = &fakevalue;
-                version (X86)
-                    pkey -= long.sizeof;
-                else version(X86_64)
-                    pkey -= 16;
-                else static assert(false, "unsupported platform");
+                version (D_LP64)
+                    pkey -= (long.sizeof + 15) & ~(15);
+                else
+                    pkey -= (long.sizeof + size_t.sizeof - 1) & ~(size_t.sizeof - 1);
 
                 // the key comes before the value
                 auto keysize = keyti.tsize;
-                version (X86)
-                    auto keysizet = (keysize + size_t.sizeof - 1) & ~(size_t.sizeof - 1);
-                else
+                version (D_LP64)
                     auto keysizet = (keysize + 15) & ~(15);
+                else
+                    auto keysizet = (keysize + size_t.sizeof - 1) & ~(size_t.sizeof - 1);
 
                 void* pvalue = pkey + keysizet;
 
                 //doFormat(putc, (&keyti)[0..1], pkey);
                 version (X86)
                     argptr = pkey;
-                else
+                else version (X86_64)
                 {   __va_list va;
                     va.stack_args = pkey;
                     argptr = &va;
                 }
+                else static assert(false, "unsupported platform");
+
                 ti = keyti;
                 m = getMan(keyti);
                 formatArg('s');
@@ -4698,11 +4713,12 @@ void doFormat(void delegate(dchar) putc, TypeInfo[] arguments, va_list argptr)
                 //doFormat(putc, (&valti)[0..1], pvalue);
                 version (X86)
                     argptr = pvalue;
-                else
+                else version (X86_64)
                 {   __va_list va2;
                     va2.stack_args = pvalue;
                     argptr = &va2;
                 }
+                else static assert(false, "unsupported platform");
 
                 ti = valti;
                 m = getMan(valti);
@@ -4849,9 +4865,9 @@ void doFormat(void delegate(dchar) putc, TypeInfo[] arguments, va_list argptr)
 
             case Mangle.Tsarray:
                 version (X86)
-                    putArray(argptr, (cast(TypeInfo_StaticArray)ti).len, (cast(TypeInfo_StaticArray)ti).next);
+                    putArray(argptr, (cast(TypeInfo_StaticArray)ti).len, cast()(cast(TypeInfo_StaticArray)ti).next);
                 else
-                    putArray((cast(__va_list*)argptr).stack_args, (cast(TypeInfo_StaticArray)ti).len, (cast(TypeInfo_StaticArray)ti).next);
+                    putArray((cast(__va_list*)argptr).stack_args, (cast(TypeInfo_StaticArray)ti).len, cast()(cast(TypeInfo_StaticArray)ti).next);
                 return;
 
             case Mangle.Tarray:
@@ -4859,7 +4875,7 @@ void doFormat(void delegate(dchar) putc, TypeInfo[] arguments, va_list argptr)
                 if (ti.classinfo.name.length == 14 &&
                     ti.classinfo.name[9..14] == "Array")
                 { // array of non-primitive types
-                  TypeInfo tn = (cast(TypeInfo_Array)ti).next;
+                  TypeInfo tn = cast()(cast(TypeInfo_Array)ti).next;
                   tn = skipCI(tn);
                   switch (cast(Mangle)tn.classinfo.name[9])
                   {
@@ -4878,7 +4894,7 @@ void doFormat(void delegate(dchar) putc, TypeInfo[] arguments, va_list argptr)
                 { // associative array
                   ubyte[long] vaa = va_arg!(ubyte[long])(argptr);
                   putAArray(vaa,
-                        (cast(TypeInfo_AssociativeArray)ti).next,
+                        cast()(cast(TypeInfo_AssociativeArray)ti).next,
                         (cast(TypeInfo_AssociativeArray)ti).key);
                   return;
                 }
@@ -5131,7 +5147,7 @@ void doFormat(void delegate(dchar) putc, TypeInfo[] arguments, va_list argptr)
             if (ti.classinfo.name.length == 14 &&
                     ti.classinfo.name[9..14] == "Array")
             {
-                TypeInfo tn = (cast(TypeInfo_Array)ti).next;
+                TypeInfo tn = cast()(cast(TypeInfo_Array)ti).next;
                 tn = skipCI(tn);
                 switch (cast(Mangle)tn.classinfo.name[9])
                 {

@@ -35,13 +35,13 @@ CFLAGS=-mn -6 -r
 
 ## Flags for dmd D compiler
 
-DFLAGS=-O -release -nofloat -w -d -property
+DFLAGS=-O -release -w -d -property
 #DFLAGS=-unittest -g -d
 #DFLAGS=-unittest -cov -g -d
 
 ## Flags for compiling unittests
 
-UDFLAGS=-O -nofloat -w -d -property
+UDFLAGS=-O -w -d -property
 
 ## C compiler
 
@@ -101,7 +101,7 @@ test.exe : test.obj $(LIB)
 # Do not add any more modules to SRCS_1.
 SRC_STD_1_HEAVY= std\stdio.d std\stdiobase.d \
 	std\string.d std\format.d \
-	std\algorithm.d std\file.d
+	std\file.d
 
 SRC_STD_2_HEAVY= std\array.d std\functional.d std\range.d \
 	std\path.d std\outbuffer.d std\utf.d
@@ -118,6 +118,10 @@ SRC_STD_3= std\csv.d std\math.d std\complex.d std\numeric.d std\bigint.d \
     std\compiler.d std\cpuid.d \
     std\system.d std\concurrency.d
 
+SRC_STD_4= std\uuid.d
+
+SRC_STD_5_HEAVY= std\algorithm.d
+
 SRC_STD_REST= std\variant.d \
 	std\syserror.d std\zlib.d \
 	std\stream.d std\socket.d std\socketstream.d \
@@ -127,12 +131,13 @@ SRC_STD_REST= std\variant.d \
 	std\stdint.d \
 	std\json.d \
 	std\parallelism.d \
-    std\mathspecial.d \
+	std\mathspecial.d \
 	std\process.d
 
-SRC_STD_ALL= $(SRC_STD_1_HEAVY) $(SRC_STD_2_HEAVY) $(SRC_STD_3) $(SRC_STD_REST)
+SRC_STD_ALL= $(SRC_STD_1_HEAVY) $(SRC_STD_2_HEAVY) $(SRC_STD_3) $(SRC_STD_4) \
+	$(SRC_STD_5_HEAVY) $(SRC_STD_REST)
 
-SRC=	unittest.d index.d
+SRC=	unittest.d crc32.d index.d
 
 SRC_STD= std\zlib.d std\zip.d std\stdint.d std\container.d std\conv.d std\utf.d std\uri.d \
 	std\math.d std\string.d std\path.d std\datetime.d \
@@ -142,7 +147,7 @@ SRC_STD= std\zlib.d std\zip.d std\stdint.d std\container.d std\conv.d std\utf.d 
 	std\syserror.d \
 	std\regexp.d std\random.d std\stream.d std\process.d \
 	std\socket.d std\socketstream.d std\format.d \
-	std\stdio.d std\perf.d std\uni.d \
+	std\stdio.d std\perf.d std\uni.d std\uuid.d \
 	std\cstream.d std\demangle.d \
 	std\signals.d std\cpuid.d std\typetuple.d std\traits.d \
 	std\metastrings.d std\getopt.d \
@@ -177,17 +182,15 @@ SRC_STD_INTERNAL= std\internal\processinit.d std\internal\uni.d std\internal\uni
 
 SRC_STD_INTERNAL_MATH= std\internal\math\biguintcore.d \
 	std\internal\math\biguintnoasm.d std\internal\math\biguintx86.d \
-	std\internal\math\gammafunction.d std\internal\math\errorfunction.d
+    std\internal\math\gammafunction.d std\internal\math\errorfunction.d
 
 SRC_STD_INTERNAL_WINDOWS= std\internal\windows\advapi32.d
-
-SRC_STD_HASH= std\hash\crc32.d
 
 SRC_ETC=
 
 SRC_ETC_C= etc\c\zlib.d etc\c\curl.d etc\c\sqlite3.d
 
-SRC_TO_COMPILE_NOT_STD= \
+SRC_TO_COMPILE_NOT_STD= crc32.d \
 	$(SRC_STD_NET) \
 	$(SRC_STD_C) \
 	$(SRC_STD_WIN) \
@@ -195,7 +198,6 @@ SRC_TO_COMPILE_NOT_STD= \
 	$(SRC_STD_INTERNAL) \
 	$(SRC_STD_INTERNAL_MATH) \
 	$(SRC_STD_INTERNAL_WINDOWS) \
-	$(SRC_STD_HASH) \
 	$(SRC_ETC) \
 	$(SRC_ETC_C)
 
@@ -270,7 +272,6 @@ DOCS=	$(DOC)\object.html \
 	$(DOC)\std_container.html \
 	$(DOC)\std_conv.html \
 	$(DOC)\std_cpuid.html \
-	$(DOC)\std_hash_crc32.html \
 	$(DOC)\std_cstream.html \
 	$(DOC)\std_ctype.html \
 	$(DOC)\std_csv.html \
@@ -314,6 +315,7 @@ DOCS=	$(DOC)\object.html \
 	$(DOC)\std_uni.html \
 	$(DOC)\std_uri.html \
 	$(DOC)\std_utf.html \
+	$(DOC)\std_uuid.html \
 	$(DOC)\std_variant.html \
 	$(DOC)\std_xml.html \
 	$(DOC)\std_zip.html \
@@ -343,13 +345,16 @@ $(LIB) : $(SRC_TO_COMPILE) \
 	$(DMD) -lib -of$(LIB) -Xfphobos.json $(DFLAGS) $(SRC_TO_COMPILE) \
 		etc\c\zlib\zlib.lib $(DRUNTIMELIB)
 
-UNITTEST_OBJS= unittest1.obj unittest2.obj unittest3.obj
+UNITTEST_OBJS= unittest1.obj unittest2.obj unittest3.obj unittest4.obj unittest5.obj
 
 unittest : $(LIB)
 	$(DMD) $(UDFLAGS) -L/co -c -unittest -ofunittest1.obj $(SRC_STD_1_HEAVY)
 	$(DMD) $(UDFLAGS) -L/co -c -unittest -ofunittest2.obj $(SRC_STD_2_HEAVY)
 	$(DMD) $(UDFLAGS) -L/co -c -unittest -ofunittest3.obj $(SRC_STD_3)
-	$(DMD) $(UDFLAGS) -L/co -unittest unittest.d $(SRC_STD_REST) $(SRC_TO_COMPILE_NOT_STD) $(UNITTEST_OBJS) \
+	$(DMD) $(UDFLAGS) -L/co -c -unittest -ofunittest4.obj $(SRC_STD_4)
+	$(DMD) $(UDFLAGS) -L/co -c -unittest -ofunittest2.obj $(SRC_STD_5_HEAVY)
+	$(DMD) $(UDFLAGS) -L/co -c -unittest -ofunittest5.obj $(SRC_STD_REST)
+	$(DMD) $(UDFLAGS) -L/co -unittest unittest.d $(SRC_TO_COMPILE_NOT_STD) $(UNITTEST_OBJS) \
 		etc\c\zlib\zlib.lib $(DRUNTIMELIB)
 	unittest
 
@@ -596,6 +601,9 @@ $(DOC)\std_uri.html : $(STDDOC) std\uri.d
 $(DOC)\std_utf.html : $(STDDOC) std\utf.d
 	$(DMD) -c -o- $(DDOCFLAGS) -Df$(DOC)\std_utf.html $(STDDOC) std\utf.d
 
+$(DOC)\std_uuid.html : $(STDDOC) std\uuid.d
+	$(DMD) -c -o- $(DDOCFLAGS) -Df$(DOC)\std_uuid.html $(STDDOC) std\uuid.d
+
 $(DOC)\std_variant.html : $(STDDOC) std\variant.d
 	$(DMD) -c -o- $(DDOCFLAGS) -Df$(DOC)\std_variant.html $(STDDOC) std\variant.d
 
@@ -613,9 +621,6 @@ $(DOC)\std_zlib.html : $(STDDOC) std\zlib.d
 
 $(DOC)\std_net_isemail.html : $(STDDOC) std\net\isemail.d
 	$(DMD) -c -o- $(DDOCFLAGS) -Df$(DOC)\std_net_isemail.html $(STDDOC) std\net\isemail.d
-
-$(DOC)\std_hash_crc32.html : $(STDDOC) std\hash\crc32.d
-	$(DMD) -c -o- $(DDOCFLAGS) -Df$(DOC)\std_hash_crc32.html $(STDDOC) std\hash\crc32.d
 
 $(DOC)\std_net_curl.html : $(STDDOC) std\net\curl.d
 	$(DMD) -c -o- $(DDOCFLAGS) -Df$(DOC)\std_net_curl.html $(STDDOC) std\net\curl.d
@@ -674,7 +679,7 @@ $(DOC)\etc_c_zlib.html : $(STDDOC) etc\c\zlib.d
 zip : win32.mak posix.mak $(STDDOC) $(SRC) \
 	$(SRC_STD) $(SRC_STD_C) $(SRC_STD_WIN) \
 	$(SRC_STD_C_WIN) $(SRC_STD_C_LINUX) $(SRC_STD_C_OSX) $(SRC_STD_C_FREEBSD) \
-	$(SRC_ETC) $(SRC_ETC_C) $(SRC_ZLIB) $(SRC_STD_NET) $(SRC_STD_HASH) \
+	$(SRC_ETC) $(SRC_ETC_C) $(SRC_ZLIB) $(SRC_STD_NET) \
 	$(SRC_STD_INTERNAL) $(SRC_STD_INTERNAL_MATH) $(SRC_STD_INTERNAL_WINDOWS)
 	del phobos.zip
 	zip32 -u phobos win32.mak posix.mak $(STDDOC)
@@ -689,7 +694,6 @@ zip : win32.mak posix.mak $(STDDOC) $(SRC) \
 	zip32 -u phobos $(SRC_STD_INTERNAL)
 	zip32 -u phobos $(SRC_STD_INTERNAL_MATH)
 	zip32 -u phobos $(SRC_STD_INTERNAL_WINDOWS)
-	zip32 -u phobos $(SRC_STD_HASH)
 	zip32 -u phobos $(SRC_ETC) $(SRC_ETC_C)
 	zip32 -u phobos $(SRC_ZLIB)
 	zip32 -u phobos $(SRC_STD_NET)
@@ -722,7 +726,6 @@ install:
 	$(CP) $(SRC_STD_INTERNAL) $(DIR)\src\phobos\std\internal\ 
 	$(CP) $(SRC_STD_INTERNAL_MATH) $(DIR)\src\phobos\std\internal\math\ 
 	$(CP) $(SRC_STD_INTERNAL_WINDOWS) $(DIR)\src\phobos\std\internal\windows\ 
-	$(CP) $(SRC_STD_HASH) $(DIR)\src\phobos\std\hash\
 	#$(CP) $(SRC_ETC) $(DIR)\src\phobos\etc\ 
 	$(CP) $(SRC_ETC_C) $(DIR)\src\phobos\etc\c\ 
 	$(CP) $(SRC_ZLIB) $(DIR)\src\phobos\etc\c\zlib\ 
@@ -742,7 +745,6 @@ svn:
 	$(CP) $(SRC_STD_INTERNAL) $(SVN)\std\internal\ 
 	$(CP) $(SRC_STD_INTERNAL_MATH) $(SVN)\std\internal\math\ 
 	$(CP) $(SRC_STD_INTERNAL_WINDOWS) $(SVN)\std\internal\windows\ 
-	$(CP) $(STC_STD_HASH) $(SVN)\std\hash\
 	#$(CP) $(SRC_ETC) $(SVN)\etc\ 
 	$(CP) $(SRC_ETC_C) $(SVN)\etc\c\ 
 	$(CP) $(SRC_ZLIB) $(SVN)\etc\c\zlib\ 

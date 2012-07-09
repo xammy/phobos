@@ -3881,14 +3881,14 @@ unittest
 }
 
 /**
- *  $(RED Scheduled for deprecation. Please use $(XREF algorithm, countUntil)
- *        instead.)
+ *  $(RED Deprecated. It will be removed in January 2013.
+ *        Please use $(LREF countUntil) instead.)
  *
- * Same as $(D countUntil). This symbol has been scheduled for
- * deprecation because it is easily confused with the homonym function
+ * Same as $(D countUntil). This symbol has been deprecated
+ * because it is easily confused with the homonym function
  * in $(D std.string).
  */
-sizediff_t indexOf(alias pred = "a == b", R1, R2)(R1 haystack, R2 needle)
+deprecated sizediff_t indexOf(alias pred = "a == b", R1, R2)(R1 haystack, R2 needle)
 if (is(typeof(startsWith!pred(haystack, needle))))
 {
     return countUntil!pred(haystack, needle);
@@ -4152,12 +4152,15 @@ if (isInputRange!R1 &&
     else
         enum isDefaultPred = false;
 
-    // Special  case for two arrays
-    static if (isArray!R1 && isArray!R2 &&
-               ((!isSomeString!R1 && !isSomeString!R2) ||
-                 (isSomeString!R1 && isSomeString!R2 &&
-                  is(Unqual!(typeof(haystack[0])) == Unqual!(typeof(needle[0]))) &&
-                  isDefaultPred)))
+    static if (isDefaultPred && isArray!R1 && isArray!R2 &&
+               is(Unqual!(ElementEncodingType!R1) == Unqual!(ElementEncodingType!R2)))
+    {
+        if (haystack.length < needle.length) return false;
+
+        return haystack[0 .. needle.length] == needle;
+    }
+    else static if (isArray!R1 && isArray!R2 &&
+                    !isNarrowString!R1 && !isNarrowString!R2)
     {
         if (haystack.length < needle.length) return false;
 
@@ -4205,8 +4208,7 @@ unittest
     debug(std_algorithm) scope(success)
         writeln("unittest @", __FILE__, ":", __LINE__, " done.");
 
-    //foreach (S; TypeTuple!(char[], wchar[], dchar[], string, wstring, dstring))
-    foreach (S; TypeTuple!(char[], wstring))
+    foreach (S; TypeTuple!(char[], wchar[], dchar[], string, wstring, dstring))
     {
         assert(!startsWith(to!S("abc"), 'c'));
         assert(startsWith(to!S("abc"), 'a', 'c') == 1);
@@ -4214,8 +4216,7 @@ unittest
         assert(startsWith(to!S("abc"), 'x', 'n', 'a') == 3);
         assert(startsWith(to!S("\uFF28abc"), 'a', '\uFF28', 'c') == 2);
 
-        //foreach (T; TypeTuple!(char[], wchar[], dchar[], string, wstring, dstring))
-        foreach (T; TypeTuple!(dchar[], string))
+        foreach (T; TypeTuple!(char[], wchar[], dchar[], string, wstring, dstring))
         {
             assert(startsWith(to!S("abc"), to!T("")));
             assert(startsWith(to!S("ab"), to!T("a")));
@@ -4238,28 +4239,33 @@ unittest
         }
     }
 
-    assert(startsWith([0, 1, 2, 3, 4, 5], cast(int[])null));
-    assert(!startsWith([0, 1, 2, 3, 4, 5], 5));
-    assert(!startsWith([0, 1, 2, 3, 4, 5], 1));
-    assert(startsWith([0, 1, 2, 3, 4, 5], 0));
-    assert(startsWith([0, 1, 2, 3, 4, 5], 5, 0, 1) == 2);
-    assert(startsWith([0, 1, 2, 3, 4, 5], [0]));
-    assert(startsWith([0, 1, 2, 3, 4, 5], [0, 1]));
-    assert(startsWith([0, 1, 2, 3, 4, 5], [0, 1], 7) == 1);
-    assert(!startsWith([0, 1, 2, 3, 4, 5], [0, 1, 7]));
-    assert(startsWith([0, 1, 2, 3, 4, 5], [0, 1, 7], [0, 1, 2]) == 2);
+    foreach(T; TypeTuple!(int, short))
+    {
+        immutable arr = cast(T[])[0, 1, 2, 3, 4, 5];
 
-    assert(!startsWith(filter!"true"([0, 1, 2, 3, 4, 5]), 1));
-    assert(startsWith(filter!"true"([0, 1, 2, 3, 4, 5]), 0));
-    assert(startsWith(filter!"true"([0, 1, 2, 3, 4, 5]), [0]));
-    assert(startsWith(filter!"true"([0, 1, 2, 3, 4, 5]), [0, 1]));
-    assert(startsWith(filter!"true"([0, 1, 2, 3, 4, 5]), [0, 1], 7) == 1);
-    assert(!startsWith(filter!"true"([0, 1, 2, 3, 4, 5]), [0, 1, 7]));
-    assert(startsWith(filter!"true"([0, 1, 2, 3, 4, 5]), [0, 1, 7], [0, 1, 2]) == 2);
-    assert(startsWith([0, 1, 2, 3, 4, 5], filter!"true"([0, 1])));
-    assert(startsWith([0, 1, 2, 3, 4, 5], filter!"true"([0, 1]), 7) == 1);
-    assert(!startsWith([0, 1, 2, 3, 4, 5], filter!"true"([0, 1, 7])));
-    assert(startsWith([0, 1, 2, 3, 4, 5], [0, 1, 7], filter!"true"([0, 1, 2])) == 2);
+        assert(startsWith(arr, cast(int[])null));
+        assert(!startsWith(arr, 5));
+        assert(!startsWith(arr, 1));
+        assert(startsWith(arr, 0));
+        assert(startsWith(arr, 5, 0, 1) == 2);
+        assert(startsWith(arr, [0]));
+        assert(startsWith(arr, [0, 1]));
+        assert(startsWith(arr, [0, 1], 7) == 1);
+        assert(!startsWith(arr, [0, 1, 7]));
+        assert(startsWith(arr, [0, 1, 7], [0, 1, 2]) == 2);
+
+        assert(!startsWith(filter!"true"(arr), 1));
+        assert(startsWith(filter!"true"(arr), 0));
+        assert(startsWith(filter!"true"(arr), [0]));
+        assert(startsWith(filter!"true"(arr), [0, 1]));
+        assert(startsWith(filter!"true"(arr), [0, 1], 7) == 1);
+        assert(!startsWith(filter!"true"(arr), [0, 1, 7]));
+        assert(startsWith(filter!"true"(arr), [0, 1, 7], [0, 1, 2]) == 2);
+        assert(startsWith(arr, filter!"true"([0, 1])));
+        assert(startsWith(arr, filter!"true"([0, 1]), 7) == 1);
+        assert(!startsWith(arr, filter!"true"([0, 1, 7])));
+        assert(startsWith(arr, [0, 1, 7], filter!"true"([0, 1, 2])) == 2);
+    }
 }
 
 /**
@@ -4451,18 +4457,21 @@ if (isInputRange!R1 &&
     else
         enum isDefaultPred = false;
 
-    // Special  case for two arrays
-    static if (isArray!R1 && isArray!R2 &&
-               ((!isSomeString!R1 && !isSomeString!R2) ||
-                 (isSomeString!R1 && isSomeString!R2 &&
-                  is(Unqual!(typeof(haystack[0])) == Unqual!(typeof(needle[0]))) &&
-                  isDefaultPred)))
+    static if (isDefaultPred && isArray!R1 && isArray!R2 &&
+               is(Unqual!(ElementEncodingType!R1) == Unqual!(ElementEncodingType!R2)))
+    {
+        if (haystack.length < needle.length) return false;
+
+        return haystack[$ - needle.length .. $] == needle;
+    }
+    else static if (isArray!R1 && isArray!R2 &&
+                    !isNarrowString!R1 && !isNarrowString!R2)
     {
         if (haystack.length < needle.length) return false;
         immutable diff = haystack.length - needle.length;
         foreach (j; 0 .. needle.length)
         {
-            if (!binaryFun!(pred)(needle[j], haystack[j + diff]))
+            if (!binaryFun!pred(needle[j], haystack[j + diff]))
                 // not found
                 return false;
         }
@@ -4523,8 +4532,7 @@ unittest
         return Result(r);
     }
 
-    //foreach (S; TypeTuple!(char[], wchar[], dchar[], string, wstring, dstring))
-    foreach (S; TypeTuple!(char[], wstring))
+    foreach (S; TypeTuple!(char[], wchar[], dchar[], string, wstring, dstring))
     {
         assert(!endsWith(to!S("abc"), 'a'));
         assert(endsWith(to!S("abc"), 'a', 'c') == 2);
@@ -4532,8 +4540,7 @@ unittest
         assert(endsWith(to!S("abc"), 'x', 'n', 'c') == 3);
         assert(endsWith(to!S("abc\uFF28"), 'a', '\uFF28', 'c') == 2);
 
-        //foreach (T; TypeTuple!(char[], wchar[], dchar[], string, wstring, dstring))
-        foreach (T; TypeTuple!(dchar[], string))
+        foreach (T; TypeTuple!(char[], wchar[], dchar[], string, wstring, dstring))
         {
             assert(endsWith(to!S("abc"), to!T("")));
             assert(!endsWith(to!S("abc"), to!T("a")));
@@ -4551,28 +4558,33 @@ unittest
         }
     }
 
-    assert(endsWith([0, 1, 2, 3, 4, 5], cast(int[])null));
-    assert(!endsWith([0, 1, 2, 3, 4, 5], 0));
-    assert(!endsWith([0, 1, 2, 3, 4, 5], 4));
-    assert(endsWith([0, 1, 2, 3, 4, 5], 5));
-    assert(endsWith([0, 1, 2, 3, 4, 5], 0, 4, 5) == 3);
-    assert(endsWith([0, 1, 2, 3, 4, 5], [5]));
-    assert(endsWith([0, 1, 2, 3, 4, 5], [4, 5]));
-    assert(endsWith([0, 1, 2, 3, 4, 5], [4, 5], 7) == 1);
-    assert(!endsWith([0, 1, 2, 3, 4, 5], [2, 4, 5]));
-    assert(endsWith([0, 1, 2, 3, 4, 5], [2, 4, 5], [3, 4, 5]) == 2);
+    foreach(T; TypeTuple!(int, short))
+    {
+        immutable arr = cast(T[])[0, 1, 2, 3, 4, 5];
 
-    assert(!endsWith(wrap([0, 1, 2, 3, 4, 5]), 4));
-    assert(endsWith(wrap([0, 1, 2, 3, 4, 5]), 5));
-    assert(endsWith(wrap([0, 1, 2, 3, 4, 5]), [5]));
-    assert(endsWith(wrap([0, 1, 2, 3, 4, 5]), [4, 5]));
-    assert(endsWith(wrap([0, 1, 2, 3, 4, 5]), [4, 5], 7) == 1);
-    assert(!endsWith(wrap([0, 1, 2, 3, 4, 5]), [2, 4, 5]));
-    assert(endsWith(wrap([0, 1, 2, 3, 4, 5]), [2, 4, 5], [3, 4, 5]) == 2);
-    assert(endsWith([0, 1, 2, 3, 4, 5], wrap([4, 5])));
-    assert(endsWith([0, 1, 2, 3, 4, 5], wrap([4, 5]), 7) == 1);
-    assert(!endsWith([0, 1, 2, 3, 4, 5], wrap([2, 4, 5])));
-    assert(endsWith([0, 1, 2, 3, 4, 5], [2, 4, 5], wrap([3, 4, 5])) == 2);
+        assert(endsWith(arr, cast(int[])null));
+        assert(!endsWith(arr, 0));
+        assert(!endsWith(arr, 4));
+        assert(endsWith(arr, 5));
+        assert(endsWith(arr, 0, 4, 5) == 3);
+        assert(endsWith(arr, [5]));
+        assert(endsWith(arr, [4, 5]));
+        assert(endsWith(arr, [4, 5], 7) == 1);
+        assert(!endsWith(arr, [2, 4, 5]));
+        assert(endsWith(arr, [2, 4, 5], [3, 4, 5]) == 2);
+
+        assert(!endsWith(wrap(arr), 4));
+        assert(endsWith(wrap(arr), 5));
+        assert(endsWith(wrap(arr), [5]));
+        assert(endsWith(wrap(arr), [4, 5]));
+        assert(endsWith(wrap(arr), [4, 5], 7) == 1);
+        assert(!endsWith(wrap(arr), [2, 4, 5]));
+        assert(endsWith(wrap(arr), [2, 4, 5], [3, 4, 5]) == 2);
+        assert(endsWith(arr, wrap([4, 5])));
+        assert(endsWith(arr, wrap([4, 5]), 7) == 1);
+        assert(!endsWith(arr, wrap([2, 4, 5])));
+        assert(endsWith(arr, [2, 4, 5], wrap([3, 4, 5])) == 2);
+    }
 }
 
 /**
@@ -5053,14 +5065,19 @@ template MinType(T...)
     {
         static if (!is(typeof(T[0].min)))
             alias CommonType!(T[0 .. 2]) MinType;
-        else static if (mostNegative!(T[1]) < mostNegative!(T[0]))
-            alias T[1] MinType;
-        else static if (mostNegative!(T[1]) > mostNegative!(T[0]))
-            alias T[0] MinType;
-        else static if (T[1].max < T[0].max)
-            alias T[1] MinType;
         else
-            alias T[0] MinType;
+        {
+            enum hasMostNegative = is(typeof(mostNegative!(T[0]))) &&
+                                   is(typeof(mostNegative!(T[1])));
+            static if (hasMostNegative && mostNegative!(T[1]) < mostNegative!(T[0]))
+                alias T[1] MinType;
+            else static if (hasMostNegative && mostNegative!(T[1]) > mostNegative!(T[0]))
+                alias T[0] MinType;
+            else static if (T[1].max < T[0].max)
+                alias T[1] MinType;
+            else
+                alias T[0] MinType;
+        }
     }
     else
     {
@@ -5074,17 +5091,20 @@ Returns the minimum of the passed-in values. The type of the result is
 computed by using $(XREF traits, CommonType).
 */
 MinType!(T1, T2, T) min(T1, T2, T...)(T1 a, T2 b, T xs)
+    if(is(typeof(a < b)))
 {
     static if (T.length == 0)
     {
-        static if (isIntegral!(T1) && isIntegral!(T2)
-                   && (mostNegative!(T1) < 0) != (mostNegative!(T2) < 0))
-            static if (mostNegative!(T1) < 0)
+        static if (isIntegral!T1 && isIntegral!T2 &&
+                   (mostNegative!T1 < 0) != (mostNegative!T2 < 0))
+        {
+            static if (mostNegative!T1 < 0)
                 immutable chooseB = b < a && a > 0;
             else
                 immutable chooseB = b < a || b < 0;
+        }
         else
-                immutable chooseB = b < a;
+            immutable chooseB = b < a;
         return cast(typeof(return)) (chooseB ? b : a);
     }
     else
@@ -5101,16 +5121,27 @@ unittest
     short b = 6;
     double c = 2;
     auto d = min(a, b);
-    assert(is(typeof(d) == int));
+    static assert(is(typeof(d) == int));
     assert(d == 5);
     auto e = min(a, b, c);
-    assert(is(typeof(e) == double));
+    static assert(is(typeof(e) == double));
     assert(e == 2);
     // mixed signedness test
     a = -10;
     uint f = 10;
     static assert(is(typeof(min(a, f)) == int));
     assert(min(a, f) == -10);
+
+    //Test user-defined types
+    import std.datetime;
+    assert(min(Date(2012, 12, 21), Date(1982, 1, 4)) == Date(1982, 1, 4));
+    assert(min(Date(1982, 1, 4), Date(2012, 12, 21)) == Date(1982, 1, 4));
+    assert(min(Date(1982, 1, 4), Date.min) == Date.min);
+    assert(min(Date.min, Date(1982, 1, 4)) == Date.min);
+    assert(min(Date(1982, 1, 4), Date.max) == Date(1982, 1, 4));
+    assert(min(Date.max, Date(1982, 1, 4)) == Date(1982, 1, 4));
+    assert(min(Date.min, Date.max) == Date.min);
+    assert(min(Date.max, Date.min) == Date.min);
 }
 
 // MaxType
@@ -5151,15 +5182,18 @@ assert(e == 2);
 ----
 */
 MaxType!(T1, T2, T) max(T1, T2, T...)(T1 a, T2 b, T xs)
+    if(is(typeof(a < b)))
 {
     static if (T.length == 0)
     {
-        static if (isIntegral!(T1) && isIntegral!(T2)
-                   && (mostNegative!(T1) < 0) != (mostNegative!(T2) < 0))
-            static if (mostNegative!(T1) < 0)
+        static if (isIntegral!T1 && isIntegral!T2 &&
+                   (mostNegative!T1 < 0) != (mostNegative!T2 < 0))
+        {
+            static if (mostNegative!T1 < 0)
                 immutable chooseB = b > a || a < 0;
             else
                 immutable chooseB = b > a && b > 0;
+        }
         else
             immutable chooseB = b > a;
         return cast(typeof(return)) (chooseB ? b : a);
@@ -5178,16 +5212,27 @@ unittest
     short b = 6;
     double c = 2;
     auto d = max(a, b);
-    assert(is(typeof(d) == int));
+    static assert(is(typeof(d) == int));
     assert(d == 6);
     auto e = max(a, b, c);
-    assert(is(typeof(e) == double));
+    static assert(is(typeof(e) == double));
     assert(e == 6);
     // mixed sign
     a = -5;
     uint f = 5;
     static assert(is(typeof(max(a, f)) == uint));
     assert(max(a, f) == 5);
+
+    //Test user-defined types
+    import std.datetime;
+    assert(max(Date(2012, 12, 21), Date(1982, 1, 4)) == Date(2012, 12, 21));
+    assert(max(Date(1982, 1, 4), Date(2012, 12, 21)) == Date(2012, 12, 21));
+    assert(max(Date(1982, 1, 4), Date.min) == Date(1982, 1, 4));
+    assert(max(Date.min, Date(1982, 1, 4)) == Date(1982, 1, 4));
+    assert(max(Date(1982, 1, 4), Date.max) == Date.max);
+    assert(max(Date.max, Date(1982, 1, 4)) == Date.max);
+    assert(max(Date.min, Date.max) == Date.max);
+    assert(max(Date.max, Date.min) == Date.max);
 }
 
 /**
@@ -8084,31 +8129,31 @@ unittest
     assert(!all!"a & 1"([1, 2, 3, 5, 7, 9]));
 }
 
-// Scheduled for deprecation.  Use std.range.SortedRange.canFind.
-bool canFindSorted(alias pred = "a < b", Range, V)(Range range, V value) {
-    pragma(msg, "std.algorithm.canFindSorted is scheduled for " ~
-        "deprecation.  Use std.range.SortedRange.canFind instead.");
+// Deprecated. It will be removed in January 2013.  Use std.range.SortedRange.canFind.
+deprecated bool canFindSorted(alias pred = "a < b", Range, V)(Range range, V value) {
+    pragma(msg, "std.algorithm.canFindSorted has been deprecated. " ~
+        "Please use std.range.SortedRange.canFind instead.");
     return assumeSorted!pred(range).canFind!V(value);
 }
 
-// Scheduled for deprecation.  Use std.range.SortedRange.lowerBound.
-Range lowerBound(alias pred = "a < b", Range, V)(Range range, V value) {
-    pragma(msg, "std.algorithm.lowerBound is scheduled for " ~
-        "deprecation.  Use std.range.SortedRange.lowerBound instead.");
+// Deprecated. It will be removed in January 2013.  Use std.range.SortedRange.lowerBound.
+deprecated Range lowerBound(alias pred = "a < b", Range, V)(Range range, V value) {
+    pragma(msg, "std.algorithm.lowerBound has been deprecated. " ~
+        "Please use std.range.SortedRange.lowerBound instead.");
     return assumeSorted!pred(range).lowerBound!V(value).release;
 }
 
-// Scheduled for deprecation.  Use std.range.SortedRange.upperBound.
-Range upperBound(alias pred = "a < b", Range, V)(Range range, V value) {
-    pragma(msg, "std.algorithm.upperBound is scheduled for " ~
-        "deprecation.  Use std.range.SortedRange.upperBound instead.");
+// Deprecated. It will be removed in January 2013.  Use std.range.SortedRange.upperBound.
+deprecated Range upperBound(alias pred = "a < b", Range, V)(Range range, V value) {
+    pragma(msg, "std.algorithm.upperBound has been deprecated. " ~
+        "Please use std.range.SortedRange.upperBound instead.");
     return assumeSorted!pred(range).upperBound!V(value).release;
 }
 
-// Scheduled for deprecation.  Use std.range.SortedRange.equalRange.
-Range equalRange(alias pred = "a < b", Range, V)(Range range, V value) {
-    pragma(msg, "std.algorithm.equalRange is scheduled for " ~
-        "deprecation.  Use std.range.SortedRange.equalRange instead.");
+// Deprecated. It will be removed in January 2013.  Use std.range.SortedRange.equalRange.
+deprecated Range equalRange(alias pred = "a < b", Range, V)(Range range, V value) {
+    pragma(msg, "std.algorithm.equalRange has been deprecated. " ~
+        "Please use std.range.SortedRange.equalRange instead.");
     return assumeSorted!pred(range).equalRange!V(value).release;
 }
 
