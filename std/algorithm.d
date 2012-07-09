@@ -97,7 +97,8 @@ $(TR $(TDNW $(LREF endsWith)) $(TD $(D endsWith("rocks", "ks"))
 returns $(D true).)
 )
 $(TR $(TD $(LREF find)) $(TD $(D find("hello world",
-"or")) returns $(D "orld") using linear search.)
+"or")) returns $(D "orld") using linear search. (For binary search refer
+to $(XREF range,sortedRange).))
 )
 $(TR $(TDNW $(LREF findAdjacent)) $(TD $(D findAdjacent([1, 2,
 3, 3, 4])) returns the subrange starting with two equal adjacent
@@ -2542,6 +2543,7 @@ if (isInputRange!RoR && isInputRange!(ElementType!RoR))
     private:
         RoR _items;
         ElementType!RoR _current;
+        bool _valid_current;
         void prepare()
         {
             for (;; _items.popFront())
@@ -2550,6 +2552,7 @@ if (isInputRange!RoR && isInputRange!(ElementType!RoR))
                 if (!_items.front.empty) break;
             }
             _current = _items.front;
+            _valid_current = true;
             _items.popFront();
         }
     public:
@@ -2566,7 +2569,7 @@ if (isInputRange!RoR && isInputRange!(ElementType!RoR))
         {
             @property auto empty()
             {
-                return _current.empty;
+                return !_valid_current || _current.empty;
             }
         }
         @property auto ref front()
@@ -2614,6 +2617,9 @@ unittest
     auto j = joiner(a);
     j.front() = 44;
     assert(a == [ [44, 2, 3], [42, 43] ]);
+
+    // bugzilla 8240
+    assert(equal(joiner([inputRangeObject("")]), ""));
 }
 
 // uniq
