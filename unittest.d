@@ -18,7 +18,6 @@ public import std.compiler;
 public import std.concurrency;
 public import std.conv;
 public import std.cpuid;
-public import std.hash.crc32;
 public import std.cstream;
 public import std.ctype;
 public import std.datetime;
@@ -53,6 +52,7 @@ public import std.typetuple;
 public import std.uni;
 public import std.uri;
 public import std.utf;
+public import std.uuid;
 public import std.variant;
 public import std.zip;
 public import std.zlib;
@@ -125,6 +125,7 @@ version (all)
 
     bool isEmail = std.net.isemail.isEmail("abc");
     auto http = std.net.curl.HTTP("dlang.org");
+    auto uuid = randomUUID();
 }
     puts("Success!");
     return 0;

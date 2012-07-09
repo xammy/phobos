@@ -15,7 +15,7 @@ Authors:   $(WEB digitalmars.com, Walter Bright),
  */
 module std.stdio;
 
-public import core.stdc.stdio;
+public import core.stdc.stdio, std.string : KeepTerminator;
 static import std.c.stdio;
 import std.stdiobase;
 import core.stdc.errno, core.stdc.stddef, core.stdc.stdlib, core.memory,
@@ -786,7 +786,7 @@ by $(D buf), whereas $(D buf = stdin.readln()) makes a new memory allocation
 with every line.  */
     S readln(S = string)(dchar terminator = '\n')
     {
-        Unqual!(typeof(S.init[0]))[] buf;
+        Unqual!(ElementEncodingType!S)[] buf;
         readln(buf, terminator);
         return assumeUnique(buf);
     }
@@ -942,7 +942,6 @@ Returns the file number corresponding to this object.
 
 /**
 Range that reads one line at a time. */
-    alias std.string.KeepTerminator KeepTerminator;
     /// ditto
     struct ByLine(Char, Terminator)
     {
@@ -1528,7 +1527,8 @@ unittest
 }
 
 /**
- * $(RED Scheduled for deprecation. Please use $(D isFileHandle) instead.)
+ * $(RED Scheduled for deprecation in January 2013.
+ *       Please use $(D isFileHandle) instead.)
  */
 alias isFileHandle isStreamingDevice;
 
@@ -2262,7 +2262,7 @@ class StdioException : Exception
 
 /**
 Initialize with a message and an error code. */
-    this(string message, uint e = .getErrno())
+    this(string message, uint e = .errno)
     {
         errno = e;
         version (Posix)
@@ -2295,7 +2295,7 @@ Initialize with a message and an error code. */
 /// ditto
     static void opCall()
     {
-        throw new StdioException(null, .getErrno());
+        throw new StdioException(null, .errno);
     }
 }
 
