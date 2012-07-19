@@ -30887,8 +30887,7 @@ auto r = benchmark!(f0, f1, f2)(10_000);
 writefln("Milliseconds to call fun[0] n times: %s", r[0].to!("msecs", int));
 --------------------
   +/
-@safe TickDuration[lengthof!(fun)()] benchmark(fun...)(uint n)
-    if(areAllSafe!fun)
+TickDuration[lengthof!(fun)()] benchmark(fun...)(uint n)
 {
     TickDuration[lengthof!(fun)()] result;
     StopWatch sw;
@@ -30899,26 +30898,6 @@ writefln("Milliseconds to call fun[0] n times: %s", r[0].to!("msecs", int));
         sw.reset();
         foreach(j; 0 .. n)
             fun[i]();
-        result[i] = sw.peek();
-    }
-
-    return result;
-}
-
-/++ Ditto +/
-TickDuration[lengthof!(fun)()] benchmark(fun...)(uint times)
-    if(!areAllSafe!fun)
-{
-    TickDuration[lengthof!(fun)()] result;
-    StopWatch sw;
-    sw.start();
-
-    foreach(i, unused; fun)
-    {
-        sw.reset();
-        foreach(j; 0 .. times)
-            fun[i]();
-
         result[i] = sw.peek();
     }
 
@@ -32068,7 +32047,7 @@ version(StdDdoc)
 
         When the value that is returned by this function is destroyed,
         $(D func) will run. $(D func) is a unary function that takes a
-        $(CXREF TickDuration).
+        $(CXREF time, TickDuration).
 
         Examples:
 --------------------
@@ -33891,7 +33870,7 @@ template _isPrintable(T...)
     else static if(T.length == 1)
     {
         enum _isPrintable = (!isArray!(T[0]) && __traits(compiles, to!string(T[0].init))) ||
-                           __traits(compiles, to!string(ArrayTarget!(T[0]).init));
+                           (isArray!(T[0]) && __traits(compiles, to!string(T[0].init[0])));
     }
     else
     {

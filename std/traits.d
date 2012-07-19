@@ -364,6 +364,32 @@ unittest
     static assert(is(P_dglit[0] == int));
 }
 
+/**
+Returns the number of arguments of function $(D func).
+arity is undefined for variadic functions.
+
+Example:
+---
+void foo(){}
+static assert(arity!foo==0);
+void bar(uint){}
+static assert(arity!bar==1);
+---
+ */
+template arity(alias func)
+    if ( isCallable!func && variadicFunctionStyle!func == Variadic.no )
+{
+    enum size_t arity = (ParameterTypeTuple!func).length;
+}
+
+unittest {
+    void foo(){}
+    static assert(arity!foo==0);
+    void bar(uint){}
+    static assert(arity!bar==1);
+    void variadicFoo(uint...){}
+    static assert(__traits(compiles,arity!variadicFoo)==false);
+}
 
 /**
 Returns a tuple consisting of the storage classes of the parameters of a
@@ -527,11 +553,11 @@ unittest
     void bar(int num, string name, int[] array){}
     static assert([PIT!bar] == ["num", "name", "array"]);
 
-	// might be changed in the future?
+    // might be changed in the future?
     void function(int num, string name) fp;
     static assert([PIT!fp] == ["", ""]);
 
-	// might be changed in the future?
+    // might be changed in the future?
     void delegate(int num, string name, int[long] aa) dg;
     static assert([PIT!dg] == ["", "", ""]);
 /+
@@ -1792,7 +1818,7 @@ template hasIndirections(T)
                 enum Impl = true;
             else
                 enum Impl = Impl!(T[1 .. $]) ||
-                    Impl!(RepresentationTypeTuple!(ArrayTarget!(T[0])));
+                    Impl!(RepresentationTypeTuple!(typeof(T[0].init[0])));
         }
         else
         {
@@ -2747,12 +2773,12 @@ template ImplicitConversionTargets(T)
     else static if(is(T : Object))
         alias TransitiveBaseTypeTuple!(T) ImplicitConversionTargets;
     // @@@BUG@@@ this should work
-    // else static if (isDynamicArray!T && !is(ArrayTarget!T == const))
-    //     alias TypeTuple!(const(ArrayTarget!T)[]) ImplicitConversionTargets;
+    // else static if (isDynamicArray!T && !is(typeof(T.init[0]) == const))
+    //     alias TypeTuple!(const(typeof(T.init[0]))[]) ImplicitConversionTargets;
     else static if (is(T == char[]))
         alias TypeTuple!(const(char)[]) ImplicitConversionTargets;
-    else static if (isDynamicArray!T && !is(ArrayTarget!T == const))
-        alias TypeTuple!(const(ArrayTarget!T)[]) ImplicitConversionTargets;
+    else static if (isDynamicArray!T && !is(typeof(T.init[0]) == const))
+        alias TypeTuple!(const(typeof(T.init[0]))[]) ImplicitConversionTargets;
     else static if (is(T : void*))
         alias TypeTuple!(void*) ImplicitConversionTargets;
     else
@@ -3795,22 +3821,6 @@ unittest
 }
 
 /**
-Returns the target type of an array.
-*/
-template ArrayTarget(T : T[])
-{
-    alias T ArrayTarget;
-}
-
-unittest
-{
-    static assert( is(ArrayTarget!(int[]) == int));
-    static assert( is(ArrayTarget!(long[0]) == long));
-
-    static assert(!is(ArrayTarget!int));
-}
-
-/**
  * Detect whether T is an associative array type
  */
 template isAssociativeArray(T)
@@ -4320,7 +4330,7 @@ unittest
  * alias int[string] Hash;
  * static assert(is(KeyType!Hash == string));
  * KeyType!Hash str = "string";   // str is declared as string
- * --- 
+ * ---
  */
 template KeyType(V : V[K], K)
 {
@@ -4335,7 +4345,7 @@ template KeyType(V : V[K], K)
  * alias int[string] Hash;
  * static assert(is(ValueType!Hash == int));
  * ValueType!Hash num = 1;   // num is declared as int
- * --- 
+ * ---
  */
 template ValueType(V : V[K], K)
 {
