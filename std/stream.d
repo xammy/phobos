@@ -1164,6 +1164,15 @@ class Stream : InputStream, OutputStream {
 
   // writes data to stream using printf() syntax,
   // returns number of bytes written
+  version (X86_64)
+  size_t printf(const(char)[] format, ...) {
+    va_list ap;
+    va_start(ap, __va_argsave);
+    auto result = vprintf(format, ap);
+    va_end(ap);
+    return result;
+  }
+  else
   size_t printf(const(char)[] format, ...) {
     va_list ap;
     ap = cast(va_list) &format;
@@ -1300,7 +1309,7 @@ class Stream : InputStream, OutputStream {
    * If the stream is not seekable the contents from the current position to eof
    * is read and returned.
    */
-  override string toString() const { with (cast(Stream)this) {
+  override string toString() {
     if (!readable)
       return super.toString();
     try
@@ -1335,13 +1344,13 @@ class Stream : InputStream, OutputStream {
     {
         return super.toString();
     }
-  } }
+  }
 
   /***
    * Get a hash of the stream by reading each byte and using it in a CRC-32
    * checksum.
    */
-  override size_t toHash() @trusted const { with (cast(Stream)this) {
+  override size_t toHash() @trusted {
     if (!readable || !seekable)
       return super.toHash();
     try
@@ -1363,7 +1372,7 @@ class Stream : InputStream, OutputStream {
     {
         return super.toHash();
     }
-  } }
+  }
 
   // helper for checking that the stream is readable
   final protected void assertReadable() {
@@ -2605,10 +2614,10 @@ class TArrayStream(Buffer): Stream {
     return cast(ubyte[])res;
   }
 
-  override string toString() const { with (cast(TArrayStream!Buffer)this) {
+  override string toString() {
       // assume data is UTF8
       return to!(string)(cast(char[])data);
-  } }
+  }
 }
 
 /* Test the TArrayStream */
@@ -2635,6 +2644,9 @@ unittest {
   assert (m.position == 10);
   assert (m.available == 90);
   assert (m.size == 100);
+  m.seekSet (0);
+  assert (m.printf ("Answer is %d", 42) == 12);
+  assert (buf[0..12] == "Answer is 42");
 }
 
 /// This subclass reads and constructs an array of bytes in memory.

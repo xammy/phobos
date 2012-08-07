@@ -377,89 +377,101 @@ template map(fun...) if (fun.length >= 1)
             alias unaryFun!fun _fun;
         }
 
-        struct Result
+        return MapResult!(_fun, Range)(r);
+    }
+}
+
+private struct MapResult(alias fun, Range)
+{
+    alias Unqual!Range R;
+    //alias typeof(fun(.ElementType!R.init)) ElementType;
+    R _input;
+
+    static if (isBidirectionalRange!R)
+    {
+        @property auto ref back()
         {
-            alias Unqual!Range R;
-            alias typeof(_fun(.ElementType!R.init)) ElementType;
-            R _input;
-
-            static if (isBidirectionalRange!R)
-            {
-                @property auto ref back()
-                {
-                    return _fun(_input.back);
-                }
-
-                void popBack()
-                {
-                    _input.popBack();
-                }
-            }
-
-            this(R input)
-            {
-                _input = input;
-            }
-
-            static if (isInfinite!R)
-            {
-                // Propagate infinite-ness.
-                enum bool empty = false;
-            }
-            else
-            {
-                @property bool empty()
-                {
-                    return _input.empty;
-                }
-            }
-
-            void popFront()
-            {
-                _input.popFront();
-            }
-
-            @property auto ref front()
-            {
-                return _fun(_input.front);
-            }
-
-            static if (isRandomAccessRange!R)
-            {
-                auto ref opIndex(size_t index)
-                {
-                    return _fun(_input[index]);
-                }
-            }
-
-            static if (hasLength!R || isSomeString!R)
-            {
-                @property auto length()
-                {
-                    return _input.length;
-                }
-
-                alias length opDollar;
-            }
-
-            static if (hasSlicing!R)
-            {
-                auto opSlice(size_t lowerBound, size_t upperBound)
-                {
-                    return typeof(this)(_input[lowerBound..upperBound]);
-                }
-            }
-
-            static if (isForwardRange!R)
-                @property auto save()
-                {
-                    auto result = this;
-                    result._input = result._input.save;
-                    return result;
-                }
+            return fun(_input.back);
         }
 
-        return Result(r);
+        void popBack()
+        {
+            _input.popBack();
+        }
+    }
+
+    this(R input)
+    {
+        _input = input;
+    }
+
+    static if (isInfinite!R)
+    {
+        // Propagate infinite-ness.
+        enum bool empty = false;
+    }
+    else
+    {
+        @property bool empty()
+        {
+            return _input.empty;
+        }
+    }
+
+    void popFront()
+    {
+        _input.popFront();
+    }
+
+    @property auto ref front()
+    {
+        return fun(_input.front);
+    }
+
+    static if (isRandomAccessRange!R)
+    {
+        static if (is(typeof(_input[ulong.max])))
+            private alias ulong opIndex_t;
+        else
+            private alias uint opIndex_t;
+
+        auto ref opIndex(opIndex_t index)
+        {
+            return fun(_input[index]);
+        }
+    }
+
+    static if (hasLength!R || isSomeString!R)
+    {
+        @property auto length()
+        {
+            return _input.length;
+        }
+
+        alias length opDollar;
+    }
+
+    static if (hasSlicing!R)
+    {
+        static if (is(typeof(_input[ulong.max .. ulong.max])))
+            private alias ulong opSlice_t;
+        else
+            private alias uint opSlice_t;
+
+        auto opSlice(opSlice_t lowerBound, opSlice_t upperBound)
+        {
+            return typeof(this)(_input[lowerBound..upperBound]);
+        }
+    }
+
+    static if (isForwardRange!R)
+    {
+        @property auto save()
+        {
+            auto result = this;
+            result._input = result._input.save;
+            return result;
+        }
     }
 }
 
@@ -551,6 +563,20 @@ unittest
         static assert(propagatesRangeType!(typeof(m), DummyType));
         assert(equal(m, [1,4,9,16,25,36,49,64,81,100]));
     }
+
+    //Test string access
+    string  s1 = "hello world!";
+    dstring s2 = "日本語";
+    dstring s3 = "hello world!"d;
+    auto ms1 = map!(std.ascii.toUpper)(s1);
+    auto ms2 = map!(std.ascii.toUpper)(s2);
+    auto ms3 = map!(std.ascii.toUpper)(s3);
+    static assert(!is(ms1[0])); //narrow strings can't be indexed
+    assert(ms2[0] == '日');
+    assert(ms3[0] == 'H');
+    static assert(!is(ms1[0..1])); //narrow strings can't be sliced
+    assert(equal(ms2[0..2], "日本"w));
+    assert(equal(ms3[0..2], "HE"));
 }
 unittest
 {
@@ -777,7 +803,7 @@ unittest
     assert(r1 == 107);
 
     // two funs
-    auto r2 = reduce!("a + b", "a - b")(tuple(0., 0.), a);
+    auto r2 = reduce!("a + b", "a - b")(tuple(0.0, 0.0), a);
     assert(r2[0] == 7 && r2[1] == -7);
     auto r3 = reduce!("a + b", "a - b")(a);
     assert(r3[0] == 7 && r3[1] == -1);
@@ -918,15 +944,69 @@ assert(a == [ 8, 9, 8, 9, 8 ]);
 ----
  */
 void fill(Range1, Range2)(Range1 range, Range2 filler)
-if (isInputRange!Range1 && isForwardRange!Range2
+    if (isInputRange!Range1
+        && (isForwardRange!Range2
+            || (isInputRange!Range2 && isInfinite!Range2))
         && is(typeof(Range1.init.front = Range2.init.front)))
 {
-    enforce(!filler.empty);
-    auto t = filler.save;
-    for (; !range.empty; range.popFront(), t.popFront())
+    static if(isInfinite!Range2)
     {
-        if (t.empty) t = filler;
-        range.front = t.front;
+        //Range2 is infinite, no need for bounds checking or saving
+        static if(hasSlicing!Range2 && hasLength!Range1
+            && is(typeof(filler[0 .. range.length])))
+        {
+            copy(filler[0..range.length], range);
+        }
+        else
+        {
+            //manual feed
+            for ( ; !range.empty; range.popFront(), filler.popFront())
+            {
+                range.front = filler.front;
+            }
+        }
+    }
+    else
+    {
+        enforce(!filler.empty, "Cannot fill range with an empty filler");
+
+        static if(hasLength!Range1 && hasLength!Range2
+            && is(typeof(range.length > filler.length)))
+        {
+            //Case we have access to length
+            auto len = filler.length;
+            //Start by bulk copies
+            for( ; range.length > len ; )
+            {
+                range = copy(filler.save, range);
+            }
+
+            //and finally fill the partial range. No need to save here.
+            static if (hasSlicing!Range2 && is(typeof(filler[0 .. range.length])))
+            {
+                //use a quick copy
+                auto len2 = range.length;
+                range = copy(filler[0 .. len2], range);
+            }
+            else
+            {
+                //iterate. No need to check filler, it's length is longer than range's
+                for (; !range.empty; range.popFront(), filler.popFront())
+                {
+                    range.front = filler.front;
+                }
+            }
+        }
+        else
+        {
+            //Most basic case.
+            auto bck = filler.save;
+            for (; !range.empty; range.popFront(), filler.popFront())
+            {
+                if (filler.empty) filler = bck.save;
+                range.front = filler.front;
+            }
+        }
     }
 }
 
@@ -943,7 +1023,19 @@ unittest
     InputRange range;
     fill(range,[1,2]);
     foreach(i,value;range.arr)
-    	assert(value == (i%2==0?1:2));
+    assert(value == (i%2==0?1:2));
+
+    //test with a input being a "reference forward" range
+    fill(a, new ReferenceForwardRange!int([8, 9]));
+    assert(a == [8, 9, 8, 9, 8]);
+
+    //test with a input being an "infinite input" range
+    fill(a, new ReferenceInfiniteInputRange!int());
+    assert(a == [0, 1, 2, 3, 4]);
+
+    //empty filler test
+    assertThrown(fill(a, a[$..$]));
+
 }
 
 /**
@@ -1092,54 +1184,54 @@ template filter(alias pred) if (is(typeof(unaryFun!pred)))
 {
     auto filter(Range)(Range rs) if (isInputRange!(Unqual!Range))
     {
-        struct FilteredRange
+        return FilterResult!(unaryFun!pred, Range)(rs);
+    }
+}
+
+private struct FilterResult(alias pred, Range)
+{
+    alias Unqual!Range R;
+    R _input;
+
+    this(R r)
+    {
+        _input = r;
+        while (!_input.empty && !pred(_input.front))
         {
-            alias Unqual!Range R;
-            R _input;
-
-            this(R r)
-            {
-                _input = r;
-                while (!_input.empty && !unaryFun!pred(_input.front))
-                {
-                    _input.popFront();
-                }
-            }
-
-            auto opSlice() { return this; }
-
-            static if (isInfinite!Range)
-            {
-                enum bool empty = false;
-            }
-            else
-            {
-                @property bool empty() { return _input.empty; }
-            }
-
-            void popFront()
-            {
-                do
-                {
-                    _input.popFront();
-                } while (!_input.empty && !unaryFun!pred(_input.front));
-            }
-
-            @property auto ref front()
-            {
-                return _input.front;
-            }
-
-            static if(isForwardRange!R)
-            {
-                @property auto save()
-                {
-                    return typeof(this)(_input);
-                }
-            }
+            _input.popFront();
         }
+    }
 
-        return FilteredRange(rs);
+    auto opSlice() { return this; }
+
+    static if (isInfinite!Range)
+    {
+        enum bool empty = false;
+    }
+    else
+    {
+        @property bool empty() { return _input.empty; }
+    }
+
+    void popFront()
+    {
+        do
+        {
+            _input.popFront();
+        } while (!_input.empty && !pred(_input.front));
+    }
+
+    @property auto ref front()
+    {
+        return _input.front;
+    }
+
+    static if(isForwardRange!R)
+    {
+        @property auto save()
+        {
+            return typeof(this)(_input);
+        }
     }
 }
 
@@ -1256,56 +1348,53 @@ template filterBidirectional(alias pred)
 {
     auto filterBidirectional(Range)(Range r) if (isBidirectionalRange!(Unqual!Range))
     {
-        struct Result
+        return FilterBidiResult!(unaryFun!pred, Range)(r);
+    }
+}
+
+private struct FilterBidiResult(alias pred, Range)
+{
+    alias Unqual!Range R;
+    R _input;
+
+    this(R r)
+    {
+        _input = r;
+        while (!_input.empty && !pred(_input.front)) _input.popFront();
+        while (!_input.empty && !pred(_input.back)) _input.popBack();
+    }
+
+    @property bool empty() { return _input.empty; }
+
+    void popFront()
+    {
+        do
         {
-            alias Unqual!Range R;
-            alias unaryFun!pred predFun;
-            R _input;
+            _input.popFront();
+        } while (!_input.empty && !pred(_input.front));
+    }
 
-            this(R r)
-            {
-                _input = r;
-                while (!_input.empty && !predFun(_input.front)) _input.popFront();
-                while (!_input.empty && !predFun(_input.back)) _input.popBack();
-            }
+    @property auto ref front()
+    {
+        return _input.front;
+    }
 
-            @property bool empty() { return _input.empty; }
+    void popBack()
+    {
+        do
+        {
+            _input.popBack();
+        } while (!_input.empty && !pred(_input.back));
+    }
 
-            void popFront()
-            {
-                do
-                {
-                    _input.popFront();
-                } while (!_input.empty && !predFun(_input.front));
-            }
+    @property auto ref back()
+    {
+        return _input.back;
+    }
 
-            @property auto ref front()
-            {
-                return _input.front;
-            }
-
-            void popBack()
-            {
-                do
-                {
-                    _input.popBack();
-                } while (!_input.empty && !predFun(_input.back));
-            }
-
-            @property auto ref back()
-            {
-                return _input.back;
-            }
-
-            @property auto save()
-            {
-                Result result;
-                result._input = _input.save;
-                return result;
-            }
-        }
-
-        return Result(r);
+    @property auto save()
+    {
+        return typeof(this)(_input.save);
     }
 }
 
@@ -1668,12 +1757,16 @@ if (isMutable!T && !is(typeof(T.init.proxySwap(T.init))))
     }
     else
     {
-        // Temporary fix Bug 4789.  Wor around the fact that assigning a static
-        // array to itself doesn't work properly.
-        static if(isStaticArray!T) {
-            if(lhs.ptr is rhs.ptr) {
+        //Avoid assigning overlapping arrays. Dynamic arrays are fine, because
+        //it's their ptr and length properties which get assigned rather
+        //than their elements when assigning them, but static arrays are value
+        //types and therefore all of their elements get copied as part of
+        //assigning them, which would be assigning overlapping arrays if lhs
+        //and rhs were the same array.
+        static if(isStaticArray!T)
+        {
+            if(lhs.ptr == rhs.ptr)
                 return;
-            }
         }
 
         // For non-struct types, suffice to do the classic swap
@@ -1750,6 +1843,13 @@ unittest
 
     const NoCopy const1, const2;
     static assert(!__traits(compiles, swap(const1, const2)));
+}
+
+unittest
+{
+    //Bug# 4789
+    int[1] s = [1];
+    swap(s, s);
 }
 
 void swapFront(R1, R2)(R1 r1, R2 r2)
@@ -2211,95 +2311,95 @@ unittest
 auto splitter(alias isTerminator, Range)(Range input)
 if (is(typeof(unaryFun!(isTerminator)(ElementType!(Range).init))))
 {
-    struct Result
+    return SplitterResult!(unaryFun!isTerminator, Range)(input);
+}
+
+private struct SplitterResult(alias isTerminator, Range)
+{
+    private Range _input;
+    private size_t _end;
+
+    this(Range input)
     {
-        private Range _input;
-        private size_t _end;
-        private alias unaryFun!isTerminator _isTerminator;
-
-        this(Range input)
+        _input = input;
+        if (_input.empty)
         {
-            _input = input;
-            if (_input.empty)
-            {
-                _end = _end.max;
-            }
-            else
-            {
-                // Chase first terminator
-                while (_end < _input.length && !_isTerminator(_input[_end]))
-                {
-                    ++_end;
-                }
-            }
-        }
-
-        static if (isInfinite!Range)
-        {
-            enum bool empty = false;  // Propagate infiniteness.
+            _end = _end.max;
         }
         else
         {
-            @property bool empty()
-            {
-                return _end == _end.max;
-            }
-        }
-
-        @property Range front()
-        {
-            assert(!empty);
-            return _input[0 .. _end];
-        }
-
-        void popFront()
-        {
-            assert(!empty);
-            if (_input.empty)
-            {
-                _end = _end.max;
-                return;
-            }
-            // Skip over existing word
-            _input = _input[_end .. _input.length];
-            // Skip terminator
-            for (;;)
-            {
-                if (_input.empty)
-                {
-                    // Nothing following the terminator - done
-                    _end = _end.max;
-                    return;
-                }
-                if (!_isTerminator(_input.front))
-                {
-                    // Found a legit next field
-                    break;
-                }
-                _input.popFront();
-            }
-            assert(!_input.empty && !_isTerminator(_input.front));
-            // Prepare _end
-            _end = 1;
-            while (_end < _input.length && !_isTerminator(_input[_end]))
+            // Chase first terminator
+            while (_end < _input.length && !isTerminator(_input[_end]))
             {
                 ++_end;
             }
         }
+    }
 
-        static if(isForwardRange!Range)
+    static if (isInfinite!Range)
+    {
+        enum bool empty = false;  // Propagate infiniteness.
+    }
+    else
+    {
+        @property bool empty()
         {
-            @property typeof(this) save()
-            {
-                auto ret = this;
-                ret._input = _input.save;
-                return ret;
-            }
+            return _end == _end.max;
         }
     }
 
-    return Result(input);
+    @property Range front()
+    {
+        assert(!empty);
+        return _input[0 .. _end];
+    }
+
+    void popFront()
+    {
+        assert(!empty);
+        if (_input.empty)
+        {
+            _end = _end.max;
+            return;
+        }
+        // Skip over existing word
+        _input = _input[_end .. _input.length];
+        // Skip terminator
+        for (;;)
+        {
+            if (_input.empty)
+            {
+                // Nothing following the terminator - done
+                _end = _end.max;
+                return;
+            }
+            if (!isTerminator(_input.front))
+            {
+                // Found a legit next field
+                break;
+            }
+            _input.popFront();
+        }
+        assert(!_input.empty && !isTerminator(_input.front));
+        // Prepare _end
+        _end = 1;
+        while (_end < _input.length && !isTerminator(_input[_end]))
+        {
+            ++_end;
+        }
+    }
+
+    static if(isForwardRange!Range)
+    {
+        @property typeof(this) save()
+        {
+            auto ret = this;
+            ret._input = _input.save;
+            return ret;
+        }
+    }
 }
+
 unittest
 {
     auto L = iota(1L, 10L);
@@ -2639,65 +2739,65 @@ assert(equal(uniq(arr), [ 1, 2, 3, 4, 5 ][]));
 auto uniq(alias pred = "a == b", Range)(Range r)
 if (isInputRange!Range && is(typeof(binaryFun!pred(r.front, r.front)) == bool))
 {
-    struct Result
+    return UniqResult!(binaryFun!pred, Range)(r);
+}
+
+private struct UniqResult(alias pred, Range)
+{
+    Range _input;
+
+    this(Range input)
     {
-        Range _input;
-
-        this(Range input)
-        {
-            _input = input;
-        }
-
-        auto opSlice()
-        {
-            return this;
-        }
-
-        void popFront()
-        {
-            auto last = _input.front;
-            do
-            {
-                _input.popFront();
-            }
-            while (!_input.empty && binaryFun!(pred)(last, _input.front));
-        }
-
-        @property ElementType!Range front() { return _input.front; }
-
-        static if (isBidirectionalRange!Range)
-        {
-            void popBack()
-            {
-                auto last = _input.back;
-                do
-                {
-                    _input.popBack();
-                }
-                while (!_input.empty && binaryFun!pred(last, _input.back));
-            }
-
-            @property ElementType!Range back() { return _input.back; }
-        }
-
-        static if (isInfinite!Range)
-        {
-            enum bool empty = false;  // Propagate infiniteness.
-        }
-        else
-        {
-            @property bool empty() { return _input.empty; }
-        }
-
-
-        static if (isForwardRange!Range) {
-            @property typeof(this) save() {
-                return typeof(this)(_input.save);
-            }
-        }
+        _input = input;
     }
 
-    return Result(r);
+    auto opSlice()
+    {
+        return this;
+    }
+
+    void popFront()
+    {
+        auto last = _input.front;
+        do
+        {
+            _input.popFront();
+        }
+        while (!_input.empty && pred(last, _input.front));
+    }
+
+    @property ElementType!Range front() { return _input.front; }
+
+    static if (isBidirectionalRange!Range)
+    {
+        void popBack()
+        {
+            auto last = _input.back;
+            do
+            {
+                _input.popBack();
+            }
+            while (!_input.empty && pred(last, _input.back));
+        }
+
+        @property ElementType!Range back() { return _input.back; }
+    }
+
+    static if (isInfinite!Range)
+    {
+        enum bool empty = false;  // Propagate infiniteness.
+    }
+    else
+    {
+        @property bool empty() { return _input.empty; }
+    }
+
+
+    static if (isForwardRange!Range) {
+        @property typeof(this) save() {
+            return typeof(this)(_input.save);
+        }
+    }
 }
 
 unittest
@@ -4654,7 +4754,7 @@ assert(p == [ 7, 8, 9 ]);
 Range findAdjacent(alias pred = "a == b", Range)(Range r)
     if (isForwardRange!(Range))
 {
-    auto ahead = r;
+    auto ahead = r.save;
     if (!ahead.empty)
     {
         for (ahead.popFront(); !ahead.empty; r.popFront(), ahead.popFront())
@@ -4683,6 +4783,9 @@ unittest
     assert(p.empty);
     p = findAdjacent!"a > b"(a);
     assert(p.empty);
+    ReferenceForwardRange!int rfr = new ReferenceForwardRange!int([1, 2, 3, 2, 2, 3]);
+    assert(equal(findAdjacent(rfr), [2, 2, 3]));
+
 }
 
 // findAmong
@@ -4891,7 +4994,7 @@ assert(!equal(a, a[1..$]));
 assert(equal(a, a));
 
 // different types
-double[] b = [ 1., 2, 4, 3];
+double[] b = [ 1.0, 2, 4, 3];
 assert(!equal(a, b[1..$]));
 assert(equal(a, b));
 
@@ -4900,16 +5003,54 @@ double[] c = [ 1.005, 2, 4, 3];
 assert(equal!(approxEqual)(b, c));
 ----
 */
-bool equal(alias pred = "a == b", Range1, Range2)(Range1 r1, Range2 r2)
-if (isInputRange!(Range1) && isInputRange!(Range2)
+bool equal(Range1, Range2)(Range1 r1, Range2 r2)
+    if (isInputRange!Range1 && isInputRange!Range2
+        && is(typeof(r1.front == r2.front)))
+{
+    static if (isArray!Range1 && isArray!Range2
+        && is(typeof(r1 == r2)))
+    {
+        //Ranges are comparable. Let the compiler do the comparison.
+        return r1 == r2;
+    }
+    else
+    {
+        //Need to do an actual compare, delegate to predicate version
+        return equal!"a==b"(r1, r2);
+    }
+}
+
+/// Ditto
+bool equal(alias pred, Range1, Range2)(Range1 r1, Range2 r2)
+    if (isInputRange!Range1 && isInputRange!Range2
         && is(typeof(binaryFun!pred(r1.front, r2.front))))
 {
-    for (; !r1.empty; r1.popFront(), r2.popFront())
+    //Try a fast implementation when the ranges have comparable lengths
+    static if (hasLength!Range1 && hasLength!Range2
+        && is(typeof(r1.length == r2.length)))
     {
-        if (r2.empty) return false;
-        if (!binaryFun!(pred)(r1.front, r2.front)) return false;
+        auto len1 = r1.length;
+        auto len2 = r2.length;
+        if (len1 != len2) return false; //Short circuit return
+
+        //Lengths are the same, so we need to do an actual comparison
+        //Good news is we can sqeeze out a bit of performance by not checking if r2 is empty
+        for (; !r1.empty; r1.popFront(), r2.popFront())
+        {
+            if (!binaryFun!(pred)(r1.front, r2.front)) return false;
+        }
+        return true;
     }
-    return r2.empty;
+    else
+    {
+        //Generic case, we have to walk both ranges making sure neither is empty
+        for (; !r1.empty; r1.popFront(), r2.popFront())
+        {
+            if (r2.empty) return false;
+            if (!binaryFun!(pred)(r1.front, r2.front)) return false;
+        }
+        return r2.empty;
+    }
 }
 
 unittest
@@ -4920,7 +5061,7 @@ unittest
     assert(!equal(a, a[1..$]));
     assert(equal(a, a));
     // test with different types
-    double[] b = [ 1., 2, 4, 3];
+    double[] b = [ 1.0, 2, 4, 3];
     assert(!equal(a, b[1..$]));
     assert(equal(a, b));
 
@@ -4928,8 +5069,54 @@ unittest
     double[] c = [ 1.005, 2, 4, 3];
     assert(equal!(approxEqual)(b, c));
 
-    // utf-8 strings
-    assert(equal("æøå", "æøå"));
+    // various strings
+    assert(equal("æøå", "æøå")); //UTF8 vs UTF8
+    assert(!equal("???", "æøå")); //UTF8 vs UTF8
+    assert(equal("æøå"w, "æøå"d)); //UTF16 vs UTF32
+    assert(!equal("???"w, "æøå"d));//UTF16 vs UTF32
+    assert(equal("æøå"d, "æøå"d)); //UTF32 vs UTF32
+    assert(!equal("???"d, "æøå"d));//UTF32 vs UTF32
+    assert(!equal("hello", "world"));
+
+    // same strings, but "explicit non default" comparison (to test the non optimized array comparison)
+    assert( equal!("a==b")("æøå", "æøå")); //UTF8 vs UTF8
+    assert(!equal!("a==b")("???", "æøå")); //UTF8 vs UTF8
+    assert( equal!("a==b")("æøå"w, "æøå"d)); //UTF16 vs UTF32
+    assert(!equal!("a==b")("???"w, "æøå"d));//UTF16 vs UTF32
+    assert( equal!("a==b")("æøå"d, "æøå"d)); //UTF32 vs UTF32
+    assert(!equal!("a==b")("???"d, "æøå"d));//UTF32 vs UTF32
+    assert(!equal!("a==b")("hello", "world"));
+
+    //Array of string
+    assert(equal(["hello", "world"], ["hello", "world"]));
+    assert(!equal(["hello", "world"], ["hello"]));
+    assert(!equal(["hello", "world"], ["hello", "Bob!"]));
+
+    //Should not compile, because "string == dstring" is illegal
+    static assert(!is(typeof(equal(["hello", "world"], ["hello"d, "world"d]))));
+    //However, arrays of non-matching string can be compared using equal!equal. Neat-o!
+    equal!equal(["hello", "world"], ["hello"d, "world"d]);
+
+    //Tests, with more fancy map ranges
+    assert(equal([2, 4, 8, 6], map!"a*2"(a)));
+    assert(equal!approxEqual(map!"a*2"(b), map!"a*2"(c)));
+    assert(!equal([2, 4, 1, 3], map!"a*2"(a)));
+    assert(!equal([2, 4, 1], map!"a*2"(a)));
+    assert(!equal!approxEqual(map!"a*3"(b), map!"a*2"(c)));
+
+    //Tests with some fancy reference ranges.
+    ReferenceInputRange!int cir = new ReferenceInputRange!int([1, 2, 4, 3]);
+    ReferenceForwardRange!int cfr = new ReferenceForwardRange!int([1, 2, 4, 3]);
+    assert(equal(cir, a));
+    cir = new ReferenceInputRange!int([1, 2, 4, 3]);
+    assert(equal(cir, cfr.save));
+    assert(equal(cfr.save, cfr.save));
+    cir = new ReferenceInputRange!int([1, 2, 8, 1]);
+    assert(!equal(cir, cfr));
+
+    //Test with an infinte range
+    ReferenceInfiniteForwardRange!int ifr = new ReferenceInfiniteForwardRange!int;
+    assert(!equal(a, ifr));
 }
 
 // cmp
@@ -5252,17 +5439,19 @@ assert(minCount!("a > b")(a) == tuple(4, 2));
  */
 Tuple!(ElementType!(Range), size_t)
 minCount(alias pred = "a < b", Range)(Range range)
+    if (isInputRange!Range && !isInfinite!Range)
 {
-    if (range.empty) return typeof(return)();
-    auto p = &(range.front());
+    enforce(!range.empty, "Can't count elements from an empty range");
     size_t occurrences = 1;
+    auto p = range.front;
     for (range.popFront(); !range.empty; range.popFront())
     {
-        if (binaryFun!(pred)(*p, range.front)) continue;
-        if (binaryFun!(pred)(range.front, *p))
+        auto p2 = range.front;
+        if (binaryFun!(pred)(p, p2)) continue;
+        if (binaryFun!(pred)(p2, p))
         {
             // change the min
-            p = &(range.front());
+            move(p2, p);
             occurrences = 1;
         }
         else
@@ -5270,7 +5459,7 @@ minCount(alias pred = "a < b", Range)(Range range)
             ++occurrences;
         }
     }
-    return tuple(*p, occurrences);
+    return tuple(p, occurrences);
 }
 
 unittest
@@ -5283,6 +5472,14 @@ unittest
     int[][] b = [ [4], [2, 4], [4], [4] ];
     auto c = minCount!("a[0] < b[0]")(b);
     assert(c == tuple([2, 4], 1), text(c[0]));
+
+    //Test empty range
+    assertThrown(minCount(a[$..$]));
+
+    //test with reference ranges. Test both input and forward.
+    assert(minCount(new ReferenceInputRange!int([1, 2, 1, 0, 2, 0])) == tuple(0, 2));
+    assert(minCount(new ReferenceForwardRange!int([1, 2, 1, 0, 2, 0])) == tuple(0, 2));
+
 }
 
 // minPos
@@ -5303,15 +5500,22 @@ assert(minPos!("a > b")(a) == [ 4, 1, 2, 4, 1, 1, 2 ]);
 ----
  */
 Range minPos(alias pred = "a < b", Range)(Range range)
+    if (isForwardRange!Range && !isInfinite!Range)
 {
     if (range.empty) return range;
-    auto result = range;
+    auto result = range.save;
+    auto p = result.front;
     for (range.popFront(); !range.empty; range.popFront())
     {
-        if (binaryFun!(pred)(result.front, range.front)
-                || !binaryFun!(pred)(range.front, result.front)) continue;
-        // change the min
-        result = range;
+        auto p2 = range.front;
+
+        //Note: Unlike minCount, we do not care to find equivalence, so a single pred call is enough
+        if (binaryFun!pred(p2, p))
+        {
+            // change the min
+            result = range.save;
+            move(p2, p);
+        }
     }
     return result;
 }
@@ -5321,10 +5525,17 @@ unittest
     debug(std_algorithm) scope(success)
         writeln("unittest @", __FILE__, ":", __LINE__, " done.");
     int[] a = [ 2, 3, 4, 1, 2, 4, 1, 1, 2 ];
-// Minimum is 1 and first occurs in position 3
+    // Minimum is 1 and first occurs in position 3
     assert(minPos(a) == [ 1, 2, 4, 1, 1, 2 ]);
-// Maximum is 4 and first occurs in position 5
+    // Maximum is 4 and first occurs in position 5
     assert(minPos!("a > b")(a) == [ 4, 1, 2, 4, 1, 1, 2 ]);
+
+    //Test that an empty range works
+    int[] b = a[$..$];
+    assert(equal(minPos(b), b));
+
+    //test with reference range.
+    assert( equal( minPos(new ReferenceForwardRange!int([1, 2, 1, 0, 2, 0])), [0, 2, 0] ) );
 }
 
 // mismatch
@@ -5339,7 +5550,7 @@ sgi.com/tech/stl/_mismatch.html, STL's _mismatch).
 Example:
 ----
 int[]    x = [ 1,  5, 2, 7,   4, 3 ];
-double[] y = [ 1., 5, 2, 7.3, 4, 8 ];
+double[] y = [ 1.0, 5, 2, 7.3, 4, 8 ];
 auto m = mismatch(x, y);
 assert(m[0] == x[3 .. $]);
 assert(m[1] == y[3 .. $]);
@@ -5363,7 +5574,7 @@ unittest
         writeln("unittest @", __FILE__, ":", __LINE__, " done.");
     // doc example
     int[]    x = [ 1,  5, 2, 7,   4, 3 ];
-    double[] y = [ 1., 5, 2, 7.3, 4, 8 ];
+    double[] y = [ 1.0, 5, 2, 7.3, 4, 8 ];
     auto m = mismatch(x, y);
     assert(m[0] == [ 7, 4, 3 ]);
     assert(m[1] == [ 7.3, 4, 8 ]);
@@ -7567,12 +7778,43 @@ assert(isSorted!("a > b")(arr));
 */
 bool isSorted(alias less = "a < b", Range)(Range r) if (isForwardRange!(Range))
 {
-    // @@@BUG@@@ Should work with inlined predicate
-    bool pred(ElementType!Range a, ElementType!Range b)
+    if (r.empty) return true;
+
+    static if (isRandomAccessRange!Range && hasLength!Range)
     {
-        return binaryFun!less(b, a);
+        immutable limit = r.length - 1;
+        foreach (i; 0 .. limit)
+        {
+            if (!binaryFun!less(r[i + 1], r[i])) continue;
+            assert(
+                !binaryFun!less(r[i], r[i + 1]),
+                text("Predicate for isSorted is not antisymmetric. Both"
+                        " pred(a, b) and pred(b, a) are true for a=", r[i],
+                        " and b=", r[i+1], " in positions ", i, " and ",
+                        i + 1));
+            return false;
+        }
     }
-    return findAdjacent!pred(r).empty;
+    else
+    {
+        auto ahead = r;
+        ahead.popFront();
+        size_t i;
+
+        for (; !ahead.empty; ahead.popFront(), ++i)
+        {
+            if (!binaryFun!less(ahead.front, r.front)) continue;
+            // Check for antisymmetric predicate
+            assert(
+                !binaryFun!less(r.front, ahead.front),
+                text("Predicate for isSorted is not antisymmetric. Both"
+                        " pred(a, b) and pred(b, a) are true for a=", r.front,
+                        " and b=", ahead.front, " in positions ", i, " and ",
+                        i + 1));
+            return false;
+        }
+    }
+    return true;
 }
 
 // makeIndex
@@ -8055,12 +8297,32 @@ unittest
 // canFind
 /**
 Returns $(D true) if and only if $(D value) can be found in $(D
-range). Performs $(BIGOH r.length) evaluations of $(D pred). */
-
-bool canFind(alias pred = "a == b", Range, V)(Range range, V value)
-if (is(typeof(find!pred(range, value))))
+range). Performs $(BIGOH needle.length) evaluations of $(D pred).
+ */
+bool canFind(alias pred = "a == b", R, E)(R haystack, E needle)
+if (is(typeof(find!pred(haystack, needle))))
 {
-    return !find!pred(range, value).empty;
+    return !find!pred(haystack, needle).empty;
+}
+
+
+/++
+    Returns the 1-based index of the first needle found in $(D haystack). If no
+    needle is found, then $(D 0) is returned.
+
+    So, if used directly in the condition of an if statement or loop, the result
+    will be $(D true) if one of the needles is found and $(D false) if none are
+    found, whereas if the result is used elsewhere, it can either be cast to
+    $(D bool) for the same effect or used to get which needle was found first
+    without having to deal with the tuple that $(D LREF find) returns for the
+    same operation.
+ +/
+size_t canFind(alias pred = "a == b", Range, Ranges...)(Range haystack, Ranges needles)
+if (Ranges.length > 1 &&
+    allSatisfy!(isForwardRange, Ranges) &&
+    is(typeof(find!pred(haystack, needles))))
+{
+    return find!pred(haystack, needles)[1];
 }
 
 unittest
@@ -8073,12 +8335,22 @@ unittest
         auto b = a[a.length / 2];
         assert(canFind(a, b));
     }
+
+    assert(canFind([0, 1, 2, 3], 2) == true);
+    assert(canFind([0, 1, 2, 3], [1, 2], [2, 3]));
+    assert(canFind([0, 1, 2, 3], [1, 2], [2, 3]) == 1);
+    assert(canFind([0, 1, 2, 3], [1, 7], [2, 3]));
+    assert(canFind([0, 1, 2, 3], [1, 7], [2, 3]) == 2);
+
+    assert(canFind([0, 1, 2, 3], 4) == false);
+    assert(!canFind([0, 1, 2, 3], [1, 3], [2, 4]));
+    assert(canFind([0, 1, 2, 3], [1, 3], [2, 4]) == 0);
 }
 
 /**
 Forwards to $(D any) for backwards compatibility.
 
-$(RED Scheduled for deprecation in August 2012. Please use $(D any) instead.)
+$(RED Scheduled for deprecation in September 2012. Please use $(D any) instead.)
 */
 bool canFind(alias pred, Range)(Range range)
 {
@@ -8738,9 +9010,45 @@ version(unittest)
         double[] result;
         foreach (i; rndstuff!(int)())
         {
-            result ~= i / 50.;
+            result ~= i / 50.0;
         }
         return result;
+    }
+
+        //Reference type input range
+    private class ReferenceInputRange(T)
+    {
+        this(Range)(Range r) if (isInputRange!Range) {_payload = array(r);}
+        final @property ref T front(){return _payload.front;}
+        final void popFront(){_payload.popFront();}
+        final @property bool empty(){return _payload.empty;}
+        protected T[] _payload;
+    }
+
+    //Reference forward range
+    private class ReferenceForwardRange(T) : ReferenceInputRange!T
+    {
+        this(Range)(Range r) if (isInputRange!Range) {super(r);}
+        final @property ReferenceForwardRange save()
+        {return new ReferenceForwardRange!T(_payload);}
+    }
+
+    //Infinite input range
+    private class ReferenceInfiniteInputRange(T)
+    {
+        this(T first = T.init) {_val = first;}
+        final @property T front(){return _val;}
+        final void popFront(){++_val;}
+        enum bool empty = false;
+        protected T _val;
+    }
+
+    //Infinite forward range
+    private class ReferenceInfiniteForwardRange(T) : ReferenceInfiniteInputRange!T
+    {
+        this(T first = T.init) {super(first);}
+        final @property ReferenceInfiniteForwardRange save()
+        {return new ReferenceInfiniteForwardRange!T(_val);}
     }
 }
 
@@ -8974,7 +9282,7 @@ unittest
     largestPartialIntersection(a, b, SortOutput.yes);
     //sort(b);
     //writeln(b);
-    assert(b == [ tuple(7., 4u), tuple(1., 3u) ][], text(b));
+    assert(b == [ tuple(7.0, 4u), tuple(1.0, 3u) ][], text(b));
     assert(a[0].empty);
 }
 

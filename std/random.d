@@ -1111,7 +1111,7 @@ unittest
     MinstdRand0 gen;
     foreach (i; 0 .. 20)
     {
-        auto x = uniform(0., 15., gen);
+        auto x = uniform(0.0, 15.0, gen);
         assert(0 <= x && x < 15);
     }
     foreach (i; 0 .. 20)
@@ -1326,14 +1326,12 @@ void randomShuffle(Range, RandomGen = Random)(Range r,
                                               ref RandomGen gen = rndGen)
     if(isRandomAccessRange!Range && isUniformRNG!RandomGen)
 {
-    foreach (i; 0 .. r.length)
-    {
-        swapAt(r, i, i + uniform(0, r.length - i, gen));
-    }
+    return partialShuffle!(Range, RandomGen)(r, r.length, gen);
 }
 
 unittest
 {
+    // Also tests partialShuffle indirectly.
     auto a = ([ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]).dup;
     auto b = a.dup;
     Mt19937 gen;
@@ -1341,6 +1339,28 @@ unittest
     assert(a.sort == b.sort);
     randomShuffle(a);
     assert(a.sort == b.sort);
+}
+
+/**
+Partially shuffles the elements of $(D r) such that upon returning $(D r[0..n]) 
+is a random subset of $(D r) and is randomly ordered.  $(D r[n..r.length]) 
+will contain the elements not in $(D r[0..n]).  These will be in an undefined 
+order, but will not be random in the sense that their order after 
+$(D partialShuffle) returns will not be independent of their order before 
+$(D partialShuffle) was called.
+
+$(D r) must be a random-access range with length.  $(D n) must be less than
+or equal to $(D r.length).  
+*/
+void partialShuffle(Range, RandomGen = Random)(Range r, size_t n,
+                                              ref RandomGen gen = rndGen)
+    if(isRandomAccessRange!Range && isUniformRNG!RandomGen)
+{
+    enforce(n <= r.length, "n must be <= r.length for partialShuffle.");
+    foreach (i; 0 .. n)
+    {
+        swapAt(r, i, i + uniform(0, r.length - i, gen));
+    }
 }
 
 /**
@@ -1568,19 +1588,40 @@ struct RandomSample(R, Random = void)
     // choice but to store a copy.
     static if(!is(Random == void))
     {
-        Random gen;
-    }
+        Random _gen;
 
-/**
-Constructor.
-*/
-    static if (hasLength!R)
-        this(R input, size_t howMany)
+        static if (hasLength!R)
         {
-            this(input, howMany, input.length);
+            this(R input, size_t howMany, Random gen)
+            {
+                _gen = gen;
+                initialize(input, howMany, input.length);
+            }
         }
 
-    this(R input, size_t howMany, size_t total)
+        this(R input, size_t howMany, size_t total, Random gen)
+        {
+            _gen = gen;
+            initialize(input, howMany, total);
+        }
+    }
+    else
+    {
+        static if (hasLength!R)
+        {
+            this(R input, size_t howMany)
+            {
+                initialize(input, howMany, input.length);
+            }
+        }
+
+        this(R input, size_t howMany, size_t total)
+        {
+            initialize(input, howMany, total);
+        }
+    }
+
+    private void initialize(R input, size_t howMany, size_t total)
     {
         _input = input;
         _available = total;
@@ -1672,7 +1713,7 @@ to remaining data values is sufficiently large.
             }
             else
             {
-                s = uniform(0, _available, gen);
+                s = uniform(0, _available, _gen);
             }
         }
         else
@@ -1687,7 +1728,7 @@ to remaining data values is sufficiently large.
             }
             else
             {
-                v = uniform!"()"(0.0, 1.0, gen);
+                v = uniform!"()"(0.0, 1.0, _gen);
             }
 
             while (quot > v)
@@ -1711,7 +1752,7 @@ Randomly reset the value of _Vprime.
         }
         else
         {
-            double r = uniform!"()"(0.0, 1.0, gen);
+            double r = uniform!"()"(0.0, 1.0, _gen);
         }
 
         return r ^^ (1.0 / remaining);
@@ -1767,7 +1808,7 @@ Variable names are chosen to match those in Vitter's paper.
                 }
                 else
                 {
-                    double u = uniform!"()"(0.0, 1.0, gen);
+                    double u = uniform!"()"(0.0, 1.0, _gen);
                 }
 
                 y1 = (u * (cast(double) _available) / qu1) ^^ (1.0/(_toSelect - 1));
@@ -1860,18 +1901,14 @@ auto randomSample(R)(R r, size_t n)
 auto randomSample(R, Random)(R r, size_t n, size_t total, Random gen)
 if(isInputRange!R && isUniformRNG!Random)
 {
-    auto ret = RandomSample!(R, Random)(r, n, total);
-    ret.gen = gen;
-    return ret;
+    return RandomSample!(R, Random)(r, n, total, gen);
 }
 
 /// Ditto
 auto randomSample(R, Random)(R r, size_t n, Random gen)
 if (isInputRange!R && hasLength!R && isUniformRNG!Random)
 {
-    auto ret = RandomSample!(R, Random)(r, n, r.length);
-    ret.gen = gen;
-    return ret;
+    return RandomSample!(R, Random)(r, n, r.length, gen);
 }
 
 unittest
@@ -1892,4 +1929,14 @@ unittest
         //writeln(e);
     }
     assert(i == 5);
+
+    // Bugzilla 8314
+    {
+        auto sample(uint seed) { return randomSample(a, 1, Random(seed)).front; }
+
+        immutable fst = sample(0);
+        uint n;
+        while (sample(++n) == fst && n < n.max) {}
+        assert(n < n.max);
+    }
 }

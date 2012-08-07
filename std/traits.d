@@ -736,77 +736,212 @@ unittest
     static assert(functionAttributes!(Test2.pure_sharedconst) == FA.pure_);
 
     static assert(functionAttributes!((int a) {}) == (FA.safe | FA.pure_ | FA.nothrow_));
+
+    auto safeDel = delegate() @safe {};
+    static assert(functionAttributes!safeDel == (FA.safe | FA.pure_ | FA.nothrow_));
+
+    auto trustedDel = delegate() @trusted {};
+    static assert(functionAttributes!trustedDel == (FA.trusted | FA.pure_ | FA.nothrow_));
+
+    auto systemDel = delegate() @system {};
+    static assert(functionAttributes!systemDel == (FA.pure_ | FA.nothrow_));
 }
 
+
 /**
-Checks the func that is @safe or @trusted
+$(D true) if $(D func) is $(D @safe) or $(D @trusted).
 
 Example:
 --------------------
-@system int add(int a, int b) {return a+b;}
-@safe int sub(int a, int b) {return a-b;}
-@trusted int mul(int a, int b) {return a*b;}
+@safe    int add(int a, int b) {return a+b;}
+@trusted int sub(int a, int b) {return a-b;}
+@system  int mul(int a, int b) {return a*b;}
 
-static assert(!isSafe!(add));
-static assert( isSafe!(sub));
-static assert( isSafe!(mul));
+static assert( isSafe!add);
+static assert( isSafe!sub);
+static assert(!isSafe!mul);
 --------------------
  */
 template isSafe(alias func)
+    if(isCallable!func)
 {
-    static if (is(typeof(func) == function))
-    {
-        enum isSafe = (functionAttributes!(func) == FunctionAttribute.safe
-                    || functionAttributes!(func) == FunctionAttribute.trusted);
-    }
-    else
-    {
-        @safe void dummySafeFunc()
-        {
-            alias ParameterTypeTuple!func Params;
-            static if (Params.length)
-            {
-                Params args;
-                func(args);
-            }
-            else
-            {
-                func();
-            }
-        }
+    enum isSafe = (functionAttributes!func & FunctionAttribute.safe) != 0 ||
+                  (functionAttributes!func & FunctionAttribute.trusted) != 0;
+}
 
-        enum isSafe = is(typeof(dummySafeFunc()));
-    }
+//Verify Examples.
+unittest
+{
+    @safe    int add(int a, int b) {return a+b;}
+    @trusted int sub(int a, int b) {return a-b;}
+    @system  int mul(int a, int b) {return a*b;}
+
+    static assert( isSafe!add);
+    static assert( isSafe!sub);
+    static assert(!isSafe!mul);
 }
 
 
-@safe
 unittest
 {
+    //Member functions
     interface Set
     {
         int systemF() @system;
         int trustedF() @trusted;
         int safeF() @safe;
     }
-    static assert( isSafe!((int a){}));
     static assert( isSafe!(Set.safeF));
     static assert( isSafe!(Set.trustedF));
     static assert(!isSafe!(Set.systemF));
+
+    //Functions
+    @safe static safeFunc() {}
+    @trusted static trustedFunc() {}
+    @system static systemFunc() {}
+
+    static assert( isSafe!safeFunc);
+    static assert( isSafe!trustedFunc);
+    static assert(!isSafe!systemFunc);
+
+    //Delegates
+    auto safeDel = delegate() @safe {};
+    auto trustedDel = delegate() @trusted {};
+    auto systemDel = delegate() @system {};
+
+    static assert( isSafe!safeDel);
+    static assert( isSafe!trustedDel);
+    static assert(!isSafe!systemDel);
+
+    //Lambdas
+    static assert( isSafe!({safeDel();}));
+    static assert( isSafe!({trustedDel();}));
+    static assert(!isSafe!({systemDel();}));
+
+    //Static opCall
+    struct SafeStatic { @safe static SafeStatic opCall() { return SafeStatic.init; } }
+    struct TrustedStatic { @trusted static TrustedStatic opCall() { return TrustedStatic.init; } }
+    struct SystemStatic { @system static SystemStatic opCall() { return SystemStatic.init; } }
+
+    static assert( isSafe!(SafeStatic()));
+    static assert( isSafe!(TrustedStatic()));
+    static assert(!isSafe!(SystemStatic()));
+
+    //Non-static opCall
+    struct Safe { @safe Safe opCall() { return Safe.init; } }
+    struct Trusted { @trusted Trusted opCall() { return Trusted.init; } }
+    struct System { @system System opCall() { return System.init; } }
+
+    static assert( isSafe!(Safe.init()));
+    static assert( isSafe!(Trusted.init()));
+    static assert(!isSafe!(System.init()));
 }
 
 
 /**
-Checks the all functions are @safe or @trusted
+$(D true) if $(D func) is $(D @system).
 
 Example:
 --------------------
-@system int add(int a, int b) {return a+b;}
-@safe int sub(int a, int b) {return a-b;}
-@trusted int mul(int a, int b) {return a*b;}
+@safe    int add(int a, int b) {return a+b;}
+@trusted int sub(int a, int b) {return a-b;}
+@system  int mul(int a, int b) {return a*b;}
 
-static assert(!areAllSafe!(add, sub));
-static assert( areAllSafe!(sub, mul));
+static assert(!isUnsafe!add);
+static assert(!isUnsafe!sub);
+static assert( isUnsafe!mul);
+--------------------
+ */
+template isUnsafe(alias func)
+{
+    enum isUnsafe = !isSafe!func;
+}
+
+//Verify Examples.
+unittest
+{
+    @safe    int add(int a, int b) {return a+b;}
+    @trusted int sub(int a, int b) {return a-b;}
+    @system  int mul(int a, int b) {return a*b;}
+
+    static assert(!isUnsafe!add);
+    static assert(!isUnsafe!sub);
+    static assert( isUnsafe!mul);
+}
+
+unittest
+{
+    //Member functions
+    interface Set
+    {
+        int systemF() @system;
+        int trustedF() @trusted;
+        int safeF() @safe;
+    }
+    static assert(!isUnsafe!(Set.safeF));
+    static assert(!isUnsafe!(Set.trustedF));
+    static assert( isUnsafe!(Set.systemF));
+
+    //Functions
+    @safe static safeFunc() {}
+    @trusted static trustedFunc() {}
+    @system static systemFunc() {}
+
+    static assert(!isUnsafe!safeFunc);
+    static assert(!isUnsafe!trustedFunc);
+    static assert( isUnsafe!systemFunc);
+
+    //Delegates
+    auto safeDel = delegate() @safe {};
+    auto trustedDel = delegate() @trusted {};
+    auto systemDel = delegate() @system {};
+
+    static assert(!isUnsafe!safeDel);
+    static assert(!isUnsafe!trustedDel);
+    static assert( isUnsafe!systemDel);
+
+    //Lambdas
+    static assert(!isUnsafe!({safeDel();}));
+    static assert(!isUnsafe!({trustedDel();}));
+    static assert( isUnsafe!({systemDel();}));
+
+    //Static opCall
+    struct SafeStatic { @safe static SafeStatic opCall() { return SafeStatic.init; } }
+    struct TrustedStatic { @trusted static TrustedStatic opCall() { return TrustedStatic.init; } }
+    struct SystemStatic { @system static SystemStatic opCall() { return SystemStatic.init; } }
+
+    static assert(!isUnsafe!(SafeStatic()));
+    static assert(!isUnsafe!(TrustedStatic()));
+    static assert( isUnsafe!(SystemStatic()));
+
+    //Non-static opCall
+    struct Safe { @safe Safe opCall() { return Safe.init; } }
+    struct Trusted { @trusted Trusted opCall() { return Trusted.init; } }
+    struct System { @system System opCall() { return System.init; } }
+
+    static assert(!isUnsafe!(Safe.init()));
+    static assert(!isUnsafe!(Trusted.init()));
+    static assert( isUnsafe!(System.init()));
+}
+
+
+/**
+$(RED Scheduled for deprecation in January 2013. It's badly named and provides
+redundant functionality. It was also badly broken prior to 2.060 (bug# 8362), so
+any code which uses it probably needs to be changed anyway. Please use
+$(D allSatisfy(isSafe, ...)) instead.)
+
+$(D true) all functions are $(D isSafe).
+
+Example:
+--------------------
+@safe    int add(int a, int b) {return a+b;}
+@trusted int sub(int a, int b) {return a-b;}
+@system  int mul(int a, int b) {return a*b;}
+
+static assert( areAllSafe!(add, add));
+static assert( areAllSafe!(add, sub));
+static assert(!areAllSafe!(sub, mul));
 --------------------
  */
 template areAllSafe(funcs...)
@@ -826,8 +961,18 @@ template areAllSafe(funcs...)
     }
 }
 
+//Verify Example
+unittest
+{
+    @safe    int add(int a, int b) {return a+b;}
+    @trusted int sub(int a, int b) {return a-b;}
+    @system  int mul(int a, int b) {return a*b;}
 
-@safe
+    static assert( areAllSafe!(add, add));
+    static assert( areAllSafe!(add, sub));
+    static assert(!areAllSafe!(sub, mul));
+}
+
 unittest
 {
     interface Set
@@ -837,42 +982,10 @@ unittest
         int safeF() @safe;
     }
     static assert( areAllSafe!((int a){}, Set.safeF));
+    static assert( areAllSafe!((int a){}, Set.safeF, Set.trustedF));
     static assert(!areAllSafe!(Set.trustedF, Set.systemF));
 }
 
-/**
-Checks the func that is @system
-
-Example:
---------------------
-@system int add(int a, int b) {return a+b;}
-@safe int sub(int a, int b) {return a-b;}
-@trusted int mul(int a, int b) {return a*b;}
-
-static assert( isUnsafe!(add));
-static assert(!isUnsafe!(sub));
-static assert(!isUnsafe!(mul));
---------------------
- */
-template isUnsafe(alias func)
-{
-    enum isUnsafe = !isSafe!func;
-}
-
-@safe
-unittest
-{
-    interface Set
-    {
-        int systemF() @system;
-        int trustedF() @trusted;
-        int safeF() @safe;
-    }
-    static assert(!isUnsafe!((int a){}));
-    static assert(!isUnsafe!(Set.safeF));
-    static assert(!isUnsafe!(Set.trustedF));
-    static assert( isUnsafe!(Set.systemF));
-}
 
 /**
 Returns the calling convention of function as a string.
@@ -3079,14 +3192,16 @@ unittest
 
 /*
  */
-template BooleanTypeOf(T) if (!is(T == enum))
+template BooleanTypeOf(T)
 {
            inout(bool) idx(        inout(bool) );
     shared(inout bool) idx( shared(inout bool) );
 
        immutable(bool) idy(    immutable(bool) );
 
-    static if (is(typeof(idx(T.init)) X) && !isIntegral!T)
+    static if (is(T == enum))
+        alias .BooleanTypeOf!(OriginalType!T) BooleanTypeOf;
+    else static if (is(typeof(idx(T.init)) X) && !isIntegral!T)
         alias X BooleanTypeOf;
     else static if (is(typeof(idy(T.init)) X) && is(Unqual!X == bool) && !isIntegral!T)
         alias X BooleanTypeOf;
@@ -3113,7 +3228,7 @@ unittest
 
 /*
  */
-template IntegralTypeOf(T) if (!is(T == enum))
+template IntegralTypeOf(T)
 {
            inout(  byte) idx(        inout(  byte) );
            inout( ubyte) idx(        inout( ubyte) );
@@ -3146,7 +3261,9 @@ template IntegralTypeOf(T) if (!is(T == enum))
        immutable(  long) idy(    immutable(  long) );
        immutable( ulong) idy(    immutable( ulong) );
 
-    static if (is(typeof(idx(T.init)) X))
+    static if (is(T == enum))
+        alias .IntegralTypeOf!(OriginalType!T) IntegralTypeOf;
+    else static if (is(typeof(idx(T.init)) X))
         alias X IntegralTypeOf;
     else static if (is(typeof(idy(T.init)) X) && staticIndexOf!(Unqual!X, IntegralTypeList) >= 0)
         alias X IntegralTypeOf;
@@ -3172,7 +3289,7 @@ unittest
 
 /*
  */
-template FloatingPointTypeOf(T) if (!is(T == enum))
+template FloatingPointTypeOf(T)
 {
            inout( float) idx(        inout( float) );
            inout(double) idx(        inout(double) );
@@ -3185,7 +3302,9 @@ template FloatingPointTypeOf(T) if (!is(T == enum))
        immutable(double) idy(   immutable(double) );
        immutable(  real) idy(   immutable(  real) );
 
-    static if (is(typeof(idx(T.init)) X))
+    static if (is(T == enum))
+        alias .FloatingPointTypeOf!(OriginalType!T) FloatingPointTypeOf;
+    else static if (is(typeof(idx(T.init)) X))
         alias X FloatingPointTypeOf;
     else static if (is(typeof(idy(T.init)) X))
         alias X FloatingPointTypeOf;
@@ -3211,7 +3330,7 @@ unittest
 
 /*
  */
-template NumericTypeOf(T) if (!is(T == enum))
+template NumericTypeOf(T)
 {
     static if (is(IntegralTypeOf!T X))
         alias X NumericTypeOf;
@@ -3239,7 +3358,7 @@ unittest
 
 /*
  */
-template UnsignedTypeOf(T) if (!is(T == enum))
+template UnsignedTypeOf(T)
 {
     static if (is(IntegralTypeOf!T X) &&
                staticIndexOf!(Unqual!X, UnsignedIntTypeList) >= 0)
@@ -3248,7 +3367,7 @@ template UnsignedTypeOf(T) if (!is(T == enum))
         static assert(0, T.stringof~" is not an unsigned type.");
 }
 
-template SignedTypeOf(T) if (!is(T == enum))
+template SignedTypeOf(T)
 {
     static if (is(IntegralTypeOf!T X) &&
                staticIndexOf!(Unqual!X, SignedIntTypeList) >= 0)
@@ -3261,7 +3380,7 @@ template SignedTypeOf(T) if (!is(T == enum))
 
 /*
  */
-template CharTypeOf(T) if (!is(T == enum))
+template CharTypeOf(T)
 {
            inout( char) idx(        inout( char) );
            inout(wchar) idx(        inout(wchar) );
@@ -3284,7 +3403,9 @@ template CharTypeOf(T) if (!is(T == enum))
       immutable(  long) idy(   immutable(  long) );
       immutable( ulong) idy(   immutable( ulong) );
 
-    static if (is(typeof(idx(T.init)) X))
+    static if (is(T == enum))
+        alias .CharTypeOf!(OriginalType!T) CharTypeOf;
+    else static if (is(typeof(idx(T.init)) X))
         alias X CharTypeOf;
     else static if (is(typeof(idy(T.init)) X) && staticIndexOf!(Unqual!X, CharTypeList) >= 0)
         alias X CharTypeOf;
@@ -3316,7 +3437,7 @@ unittest
 
 /*
  */
-template StaticArrayTypeOf(T) if (!is(T == enum))
+template StaticArrayTypeOf(T)
 {
     inout(U[n]) idx(U, size_t n)( inout(U[n]) );
 
@@ -3347,7 +3468,7 @@ unittest
 
 /*
  */
-template DynamicArrayTypeOf(T) if (!is(T == enum))
+template DynamicArrayTypeOf(T)
 {
     inout(U[]) idx(U)( inout(U[]) );
 
@@ -3387,7 +3508,7 @@ unittest
 
 /*
  */
-template ArrayTypeOf(T) if (!is(T == enum))
+template ArrayTypeOf(T)
 {
     static if (is(StaticArrayTypeOf!T X))
         alias X ArrayTypeOf;
@@ -3403,7 +3524,7 @@ unittest
 
 /*
  */
-template StringTypeOf(T) if (!is(T == enum) && isSomeString!T)
+template StringTypeOf(T) if (isSomeString!T)
 {
     alias ArrayTypeOf!T StringTypeOf;
 }
@@ -3433,7 +3554,7 @@ unittest
 
 /*
  */
-template AssocArrayTypeOf(T) if (!is(T == enum))
+template AssocArrayTypeOf(T)
 {
        immutable(V [K]) idx(K, V)(    immutable(V [K]) );
 
@@ -3520,6 +3641,12 @@ template isBoolean(T)
     enum bool isBoolean = is(BooleanTypeOf!T);
 }
 
+unittest
+{
+    enum EB : bool { a = true }
+    static assert(isBoolean!EB);
+}
+
 /**
  * Detect whether we can treat T as a built-in integral type. Types $(D bool),
  * $(D char), $(D wchar), and $(D dchar) are not considered integral.
@@ -3580,6 +3707,11 @@ unittest
     static assert(isIntegral!(shared(const(ulong))));
 
     static assert(!isIntegral!(float));
+
+    enum EU : uint { a = 0, b = 1, c = 2 }  // base type is unsigned
+    enum EI : int { a = -1, b = 0, c = 1 }  // base type is signed (bug 7909)
+    static assert(isIntegral!EU &&  isUnsigned!EU && !isSigned!EU);
+    static assert(isIntegral!EI && !isUnsigned!EI &&  isSigned!EI);
 }
 
 /**
@@ -3610,6 +3742,9 @@ unittest
         static assert(!isFloatingPoint!(typeof(b)));
         static assert(!isFloatingPoint!(typeof(c)));
     }
+
+    enum EF : real { a = 1.414, b = 1.732, c = 2.236 }
+    static assert( isFloatingPoint!EF);
 }
 
 /**
@@ -3692,6 +3827,9 @@ unittest
     static assert(!isSomeChar!(wstring));
     static assert(!isSomeChar!(dstring));
     static assert(!isSomeChar!(char[4]));
+
+    enum EC : char { a = 'x', b = 'y' }
+    static assert( isSomeChar!EC);
 }
 
 /**
@@ -3699,11 +3837,7 @@ Detect whether we can treat T as one of the built-in string types.
  */
 template isSomeString(T)
 {
-    static if (is(T == enum))
-    {
-        enum isSomeString = false;
-    }
-    else static if (is(T == typeof(null)))
+    static if (is(T == typeof(null)))
     {
         // It is impossible to determine exact string type from typeof(null) -
         // it means that StringTypeOf!(typeof(null)) is undefined.
@@ -3727,6 +3861,9 @@ unittest
     static assert(!isSomeString!(int[]));
     static assert(!isSomeString!(byte[]));
     static assert(!isSomeString!(typeof(null)));
+
+    enum ES : string { a = "aaa", b = "bbb" }
+    static assert( isSomeString!ES);
 }
 
 template isNarrowString(T)
@@ -3779,6 +3916,9 @@ unittest
     static assert(!isStaticArray!(int[1][]));
     static assert(!isStaticArray!(int[int]));
     static assert(!isStaticArray!(int));
+
+    //enum ESA : int[1] { a = [1], b = [2] }
+    //static assert( isStaticArray!ESA);
 }
 
 /**
@@ -3799,6 +3939,9 @@ unittest
     static assert( isDynamicArray!(int[]));
     static assert(!isDynamicArray!(int[5]));
     static assert(!isDynamicArray!(typeof(null)));
+
+    //enum EDA : int[] { a = [1], b = [2] }
+    //static assert( isDynamicArray!EDA);
 }
 
 /**
@@ -3844,6 +3987,9 @@ unittest
     static assert(!isAssociativeArray!(int));
     static assert(!isAssociativeArray!(int[]));
     static assert(!isAssociativeArray!(typeof(null)));
+
+    //enum EAA : int[int] { a = [1:1], b = [2:2] }
+    //static assert( isAssociativeArray!EAA);
 }
 
 template isBuiltinType(T)
